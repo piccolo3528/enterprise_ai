@@ -1,0 +1,1131 @@
+{
+  "dataset": "Nexora Technologies RAG evaluation set",
+  "corpus_as_of": "2026-11-06",
+  "question_count": 57,
+  "conventions": {
+    "expected_versions": "'<DocID> v<version>'",
+    "expected_sections": "'<DocID> v<version> §<section>'",
+    "unanswerable": "answerable=false; expected_document_ids lists documents only where the corpus contradicts the premise or points to an absent document"
+  },
+  "questions": [
+    {
+      "question_id": "Q001",
+      "question": "How many days of annual leave does an employee receive each year?",
+      "expected_answer": "20 working days of Annual Leave per leave year, accruing at 1.67 days per month and credited on the first day of each month.",
+      "expected_document_ids": [
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §4.1"
+      ],
+      "question_type": "factual",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": "Answers of 18 days come from the superseded v2.0 and are wrong."
+    },
+    {
+      "question_id": "Q002",
+      "question": "How long is the probation period for a new employee joining at L3?",
+      "expected_answer": "Six months from the date of joining. (Only lateral hires directly into L7 or L8 serve three months.)",
+      "expected_document_ids": [
+        "NX-HR-001"
+      ],
+      "expected_versions": [
+        "NX-HR-001 v4.0"
+      ],
+      "expected_sections": [
+        "NX-HR-001 v4.0 §5.1"
+      ],
+      "question_type": "factual",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q003",
+      "question": "Within how much time must a security incident be reported, and how?",
+      "expected_answer": "Within one hour of discovery, by raising a 'Security Incident' request in NexDesk, emailing security@nexora-tech.example, or calling internal extension 7100.",
+      "expected_document_ids": [
+        "NX-IT-001"
+      ],
+      "expected_versions": [
+        "NX-IT-001 v3.1"
+      ],
+      "expected_sections": [
+        "NX-IT-001 v3.1 §12.2"
+      ],
+      "question_type": "factual",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q004",
+      "question": "Which days of the week are mandatory office days for hybrid employees?",
+      "expected_answer": "Tuesday and Wednesday are mandatory anchor days; the third office day is chosen by the employee with their Reporting Manager.",
+      "expected_document_ids": [
+        "NX-HR-003"
+      ],
+      "expected_versions": [
+        "NX-HR-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-HR-003 v2.0 §4.2"
+      ],
+      "question_type": "factual",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q005",
+      "question": "What referral bonus do I get if a candidate I referred is hired at L5?",
+      "expected_answer": "₹60,000 (the rate for hires at L4 and above), paid with the salary for the month after the candidate completes probation, provided both the referrer and the candidate are still employed.",
+      "expected_document_ids": [
+        "NX-HR-001"
+      ],
+      "expected_versions": [
+        "NX-HR-001 v4.0"
+      ],
+      "expected_sections": [
+        "NX-HR-001 v4.0 §8.1",
+        "NX-HR-001 v4.0 §8.2"
+      ],
+      "question_type": "factual",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": "The flat ₹25,000 in the revision history is the old v3.1 amount."
+    },
+    {
+      "question_id": "Q006",
+      "question": "Who chairs the Grievance Redressal Committee?",
+      "expected_answer": "The Head of HR.",
+      "expected_document_ids": [
+        "NX-GOV-003"
+      ],
+      "expected_versions": [
+        "NX-GOV-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-GOV-003 v2.0 §8.1"
+      ],
+      "question_type": "factual",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": "Do not confuse with the Ethics Committee, which is chaired by the Head of Compliance (NX-GOV-002 §13.1)."
+    },
+    {
+      "question_id": "Q007",
+      "question": "My grievance was decided at Level 1 but I'm not satisfied. What can I do, by when, and how long does the next level take?",
+      "expected_answer": "Escalate to Level 2 in NexPeople within 5 working days of receiving the Level 1 outcome. Level 2 is handled by the HRBP together with the Department Head, who acknowledge within 2 working days and resolve within 10 working days. If dissatisfied again, the employee can escalate to Level 3 (Grievance Redressal Committee).",
+      "expected_document_ids": [
+        "NX-GOV-003"
+      ],
+      "expected_versions": [
+        "NX-GOV-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-GOV-003 v2.0 §6.3",
+        "NX-GOV-003 v2.0 §5"
+      ],
+      "question_type": "multi_passage",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q008",
+      "question": "What happens if my manager doesn't complete my probation review on time, and how long can probation be extended?",
+      "expected_answer": "If the review is not completed by the probation end date, the employee is deemed confirmed from the day after the probation end date. Probation can be extended only once, by up to three months, with written HRBP concurrence; total probation cannot exceed nine months (six months for L7–L8 lateral hires).",
+      "expected_document_ids": [
+        "NX-HR-001"
+      ],
+      "expected_versions": [
+        "NX-HR-001 v4.0"
+      ],
+      "expected_sections": [
+        "NX-HR-001 v4.0 §5.3",
+        "NX-HR-001 v4.0 §5.4"
+      ],
+      "question_type": "multi_passage",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q009",
+      "question": "What are the rules for working from anywhere?",
+      "expected_answer": "Hybrid employees may work from anywhere in India for up to 15 working days per calendar year (unused days lapse on 31 December), in blocks of no more than 10 consecutive working days, with Reporting Manager approval at least 7 calendar days in advance. Employees on probation are not eligible, working from outside India is not permitted, WFA days are exempt from office attendance, and employees must work core hours, use a secure network and not access Restricted information from public or shared networks.",
+      "expected_document_ids": [
+        "NX-HR-003"
+      ],
+      "expected_versions": [
+        "NX-HR-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-HR-003 v2.0 §5.1",
+        "NX-HR-003 v2.0 §5.2",
+        "NX-HR-003 v2.0 §5.3"
+      ],
+      "question_type": "multi_passage",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q010",
+      "question": "If Nexora sponsors a ₹90,000 certification and I leave early, what do I have to repay, and are there cases with no repayment?",
+      "expected_answer": "Sponsorship above ₹50,000 carries a 12-month service commitment from completion. If you resign before it ends, Nexora recovers a pro-rata share for the unserved months through the full and final settlement (e.g. 8 unserved months → 8/12 × ₹90,000 = ₹60,000). Nothing is recovered if employment ends due to redundancy, death or permanent disability, or termination by Nexora for reasons other than misconduct.",
+      "expected_document_ids": [
+        "NX-HR-006"
+      ],
+      "expected_versions": [
+        "NX-HR-006 v1.3"
+      ],
+      "expected_sections": [
+        "NX-HR-006 v1.3 §6.1",
+        "NX-HR-006 v1.3 §6.2",
+        "NX-HR-006 v1.3 §6.3"
+      ],
+      "question_type": "multi_passage",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q011",
+      "question": "How quickly must a manager respond to a leave request, and what happens if they don't?",
+      "expected_answer": "The approver must approve or reject within three working days and must record a reason for any rejection. Requests not actioned in time are escalated automatically in NexPeople to the next approver; they are not approved automatically.",
+      "expected_document_ids": [
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §5.4",
+        "NX-HR-002 v3.0 §5.5"
+      ],
+      "question_type": "multi_passage",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q012",
+      "question": "What happens to my unused annual leave when I resign?",
+      "expected_answer": "Unused Annual Leave of up to 30 days is encashed at the daily rate of basic salary (monthly basic ÷ 30) in the full and final settlement; leave above 30 days lapses. Sick Leave, Casual Leave, restricted holidays and compensatory off are not encashed. The F&F is paid within 45 calendar days of the last working day, provided clearance is complete.",
+      "expected_document_ids": [
+        "NX-HR-002",
+        "NX-HR-008"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0",
+        "NX-HR-008 v1.4"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §6.4",
+        "NX-HR-008 v1.4 §7.4",
+        "NX-HR-008 v1.4 §11.1"
+      ],
+      "question_type": "multi_document",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "v2.0 encashed the full Earned Leave balance at exit; that is superseded."
+    },
+    {
+      "question_id": "Q013",
+      "question": "I'm joining next week. When must I finish security training, and can I work from home in my first month?",
+      "expected_answer": "Information Security Awareness training must be completed in NexLearn within 7 calendar days of joining; client system access is held until it is done. New employees work from the office every working day for the first four weeks; the hybrid minimum of three office days a week applies from week five.",
+      "expected_document_ids": [
+        "NX-HR-003",
+        "NX-HR-004",
+        "NX-IT-001"
+      ],
+      "expected_versions": [
+        "NX-HR-004 v2.2",
+        "NX-IT-001 v3.1",
+        "NX-HR-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-HR-004 v2.2 §5",
+        "NX-HR-004 v2.2 §5.3",
+        "NX-IT-001 v3.1 §11.1",
+        "NX-HR-003 v2.0 §8"
+      ],
+      "question_type": "multi_document",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "'First two weeks' is the superseded rule from HR-003 v1.0 / HR-004 v2.1."
+    },
+    {
+      "question_id": "Q014",
+      "question": "Who needs to approve a ₹60,000 expense claim that I'm submitting 45 days after the expense?",
+      "expected_answer": "The Department Head. ₹60,000 falls in the ₹25,001–₹1,00,000 band approved by the Department Head, and claims submitted 31–60 days late are processed only with Department Head approval of the delay.",
+      "expected_document_ids": [
+        "NX-FIN-002",
+        "NX-FIN-003"
+      ],
+      "expected_versions": [
+        "NX-FIN-002 v2.3",
+        "NX-FIN-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-FIN-002 v2.3 §4.2",
+        "NX-FIN-002 v2.3 §6.1",
+        "NX-FIN-003 v2.0 §4.1"
+      ],
+      "question_type": "multi_document",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q015",
+      "question": "I've just returned from maternity leave. Do I still have to come into the office on Tuesdays and Wednesdays?",
+      "expected_answer": "No, not immediately. After Maternity, Adoption or Surrogacy Leave you may work fully remotely for up to 12 weeks with your Reporting Manager's agreement, during which the minimum office attendance requirement (including anchor days) does not apply.",
+      "expected_document_ids": [
+        "NX-HR-003",
+        "NX-HR-007"
+      ],
+      "expected_versions": [
+        "NX-HR-007 v2.1",
+        "NX-HR-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-HR-007 v2.1 §7.1",
+        "NX-HR-003 v2.0 §7"
+      ],
+      "question_type": "multi_document",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q016",
+      "question": "What amounts can Nexora deduct from an employee's full and final settlement?",
+      "expected_answer": "Notice shortfall not waived (basic salary per unserved day); Annual Leave taken in advance and not earned; the pro-rata share of learning sponsorship under the 12-month service commitment; the recovery value of unreturned or damaged assets (laptop: purchase cost less 25% per completed year, minimum 20%; fixed amounts for accessories); and outstanding salary or travel advances.",
+      "expected_document_ids": [
+        "NX-HR-002",
+        "NX-HR-006",
+        "NX-HR-008",
+        "NX-IT-003"
+      ],
+      "expected_versions": [
+        "NX-HR-008 v1.4",
+        "NX-HR-002 v3.0",
+        "NX-HR-006 v1.3",
+        "NX-IT-003 v1.0"
+      ],
+      "expected_sections": [
+        "NX-HR-008 v1.4 §11.2",
+        "NX-HR-002 v3.0 §4.4",
+        "NX-HR-006 v1.3 §6.2",
+        "NX-IT-003 v1.0 §8"
+      ],
+      "question_type": "multi_document",
+      "difficulty": "hard",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q017",
+      "question": "An L5 Manager with a 90-day notice period wants to leave after serving 45 days. Who must approve waiving the shortfall, and what is recovered if it isn't waived?",
+      "expected_answer": "The shortfall is 45 days, which exceeds 30 days, so a waiver needs both the Department Head and the Head of HR. Without a waiver, 45 days of basic salary are recovered (monthly basic salary ÷ 30 per day).",
+      "expected_document_ids": [
+        "NX-FIN-003",
+        "NX-HR-008"
+      ],
+      "expected_versions": [
+        "NX-HR-008 v1.4",
+        "NX-FIN-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-HR-008 v1.4 §4.1",
+        "NX-HR-008 v1.4 §6.2",
+        "NX-HR-008 v1.4 §6.3",
+        "NX-FIN-003 v2.0 §4.2"
+      ],
+      "question_type": "multi_document",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q018",
+      "question": "How do I report (a) a colleague I suspect is taking bribes from a vendor and (b) a dispute with my own manager about work allocation?",
+      "expected_answer": "(a) Bribery is a Code of Conduct matter, not a grievance: report it to your manager or HRBP, the Ethics Hotline (ethics@nexora-tech.example or extension 7000) or the anonymous web form on NexHub. (b) A work-allocation dispute is a grievance raised in NexPeople; because it concerns your own Reporting Manager, it starts at Level 2 (HRBP and Department Head).",
+      "expected_document_ids": [
+        "NX-GOV-002",
+        "NX-GOV-003"
+      ],
+      "expected_versions": [
+        "NX-GOV-002 v3.0",
+        "NX-GOV-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-GOV-002 v3.0 §12.1",
+        "NX-GOV-003 v2.0 §4.2",
+        "NX-GOV-003 v2.0 §7.2"
+      ],
+      "question_type": "multi_document",
+      "difficulty": "hard",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q019",
+      "question": "What is the maximum value of a gift I can accept from a vendor?",
+      "expected_answer": "₹2,500 market value per occasion, with a total of no more than ₹10,000 from the same giver per calendar year, and not during a tender or negotiation you are involved in. Gifts above ₹1,000 must be recorded in the Gift Register within 7 days; cash, gift cards and vouchers are never allowed.",
+      "expected_document_ids": [
+        "NX-GOV-002"
+      ],
+      "expected_versions": [
+        "NX-GOV-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-GOV-002 v3.0 §6.1",
+        "NX-GOV-002 v3.0 §6.2",
+        "NX-GOV-002 v3.0 §6.3"
+      ],
+      "question_type": "numerical",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": "₹2,000 is the pre-v3.0 limit in the revision history."
+    },
+    {
+      "question_id": "Q020",
+      "question": "What is the notice period for a confirmed L4 employee?",
+      "expected_answer": "90 calendar days.",
+      "expected_document_ids": [
+        "NX-HR-008"
+      ],
+      "expected_versions": [
+        "NX-HR-008 v1.4"
+      ],
+      "expected_sections": [
+        "NX-HR-008 v1.4 §4.1"
+      ],
+      "question_type": "numerical",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q021",
+      "question": "What is the minimum time in level before an L3 can be promoted to L4?",
+      "expected_answer": "24 months (reducible by 6 months under accelerated promotion after two consecutive Outstanding ratings).",
+      "expected_document_ids": [
+        "NX-HR-005"
+      ],
+      "expected_versions": [
+        "NX-HR-005 v2.1"
+      ],
+      "expected_sections": [
+        "NX-HR-005 v2.1 §8.2",
+        "NX-HR-005 v2.1 §8.3"
+      ],
+      "question_type": "numerical",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q022",
+      "question": "What is the annual learning budget for an L6 employee?",
+      "expected_answer": "₹50,000 per financial year (1 April – 31 March).",
+      "expected_document_ids": [
+        "NX-HR-006"
+      ],
+      "expected_versions": [
+        "NX-HR-006 v1.3"
+      ],
+      "expected_sections": [
+        "NX-HR-006 v1.3 §4.1"
+      ],
+      "question_type": "numerical",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": "₹40,000 is the superseded v1.2 figure."
+    },
+    {
+      "question_id": "Q023",
+      "question": "What are the recovery time and recovery point objectives for email and the VPN?",
+      "expected_answer": "They are Critical systems: RTO 4 hours and RPO 1 hour.",
+      "expected_document_ids": [
+        "NX-OPS-001"
+      ],
+      "expected_versions": [
+        "NX-OPS-001 v1.5"
+      ],
+      "expected_sections": [
+        "NX-OPS-001 v1.5 §6"
+      ],
+      "question_type": "numerical",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q024",
+      "question": "A laptop bought for ₹1,00,000 was issued 3 years and 6 months ago and is not returned at exit. How much is recovered?",
+      "expected_answer": "₹25,000. Three completed years reduce the value by 75%, leaving 25% of ₹1,00,000, which is above the 20% minimum.",
+      "expected_document_ids": [
+        "NX-IT-003"
+      ],
+      "expected_versions": [
+        "NX-IT-003 v1.0"
+      ],
+      "expected_sections": [
+        "NX-IT-003 v1.0 §8"
+      ],
+      "question_type": "numerical",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q025",
+      "question": "My laptop needs a ₹40,000 repair for accidental damage, and it was already repaired for accidental damage 10 months ago. How much do I pay?",
+      "expected_answer": "₹15,000. For a second accidental damage within 24 months the employee pays 50% of the repair cost (₹20,000), capped at ₹15,000 per incident.",
+      "expected_document_ids": [
+        "NX-IT-003"
+      ],
+      "expected_versions": [
+        "NX-IT-003 v1.0"
+      ],
+      "expected_sections": [
+        "NX-IT-003 v1.0 §6.4"
+      ],
+      "question_type": "numerical",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q026",
+      "question": "Can I take marriage leave while I'm still on probation?",
+      "expected_answer": "No. Marriage Leave (5 working days, once during employment, with 30 calendar days' notice) can only be taken after confirmation.",
+      "expected_document_ids": [
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §4.3",
+        "NX-HR-002 v3.0 §4.1",
+        "NX-HR-002 v3.0 §5.2"
+      ],
+      "question_type": "exception_eligibility",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q027",
+      "question": "I work in Talent Acquisition. Can I get a referral bonus?",
+      "expected_answer": "No. Employees in Human Resources and Talent Acquisition are excluded, as are the hiring manager for the position, employees at L7–L8, and referrers of former employees who left less than 12 months earlier.",
+      "expected_document_ids": [
+        "NX-HR-001"
+      ],
+      "expected_versions": [
+        "NX-HR-001 v4.0"
+      ],
+      "expected_sections": [
+        "NX-HR-001 v4.0 §8.3"
+      ],
+      "question_type": "exception_eligibility",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q028",
+      "question": "I joined on 15 January 2026. Will I receive a performance rating in May 2026?",
+      "expected_answer": "No. Employees who join between 1 January and 31 March are marked 'New joiner – not rated' for that cycle (April 2025 – March 2026). Your first rating is at the end of the following cycle (April 2026 – March 2027), released by 31 May 2027.",
+      "expected_document_ids": [
+        "NX-HR-005"
+      ],
+      "expected_versions": [
+        "NX-HR-005 v2.1"
+      ],
+      "expected_sections": [
+        "NX-HR-005 v2.1 §7.1",
+        "NX-HR-005 v2.1 §5.1",
+        "NX-HR-005 v2.1 §5.2"
+      ],
+      "question_type": "exception_eligibility",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q029",
+      "question": "I have worked 70 days at Nexora in the 12 months before my expected delivery date. Am I entitled to paid maternity leave?",
+      "expected_answer": "No. Paid Maternity Leave requires at least 80 days worked in the 12 months before the expected delivery date. You may use your available leave under NX-HR-002 and up to 90 calendar days of Leave Without Pay, which the Head of HR approves without requiring other balances to be exhausted.",
+      "expected_document_ids": [
+        "NX-HR-007"
+      ],
+      "expected_versions": [
+        "NX-HR-007 v2.1"
+      ],
+      "expected_sections": [
+        "NX-HR-007 v2.1 §3",
+        "NX-HR-007 v2.1 §4.3"
+      ],
+      "question_type": "exception_eligibility",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q030",
+      "question": "I'm an L6 Senior Manager. Do I get compensatory off for working on a public holiday?",
+      "expected_answer": "No. Under the current policy, employees at L6, L7 and L8 are not eligible for compensatory off.",
+      "expected_document_ids": [
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §7.3"
+      ],
+      "question_type": "exception_eligibility",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "Under superseded v2.0 only L7–L8 were excluded, so an L6 was eligible before 1 April 2026."
+    },
+    {
+      "question_id": "Q031",
+      "question": "An employee adopts an 8-month-old child. What leave is she entitled to?",
+      "expected_answer": "She is not entitled to 12-week Adoption Leave, which applies only to children below three months. She may take up to 15 working days of special paid leave, approved by the HRBP, within one month of the adoption.",
+      "expected_document_ids": [
+        "NX-HR-007"
+      ],
+      "expected_versions": [
+        "NX-HR-007 v2.1"
+      ],
+      "expected_sections": [
+        "NX-HR-007 v2.1 §3",
+        "NX-HR-007 v2.1 §6.2"
+      ],
+      "question_type": "exception_eligibility",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q032",
+      "question": "What is the salary range for an L4 Lead?",
+      "expected_answer": "The documents do not contain salary bands or ranges for any level. The model should say this information is not available in the corpus.",
+      "expected_document_ids": [],
+      "expected_versions": [],
+      "expected_sections": [],
+      "question_type": "unanswerable",
+      "difficulty": "medium",
+      "answerable": false,
+      "grading_notes": "Job levels exist (HR-001 §4) but no compensation figures; any number is a hallucination."
+    },
+    {
+      "question_id": "Q033",
+      "question": "Does Nexora offer employee stock options?",
+      "expected_answer": "The documents do not mention stock options or any equity plan. The information is not available.",
+      "expected_document_ids": [],
+      "expected_versions": [],
+      "expected_sections": [],
+      "question_type": "unanswerable",
+      "difficulty": "easy",
+      "answerable": false,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q034",
+      "question": "Can I get my gym membership reimbursed?",
+      "expected_answer": "The documents do not address gym or wellness reimbursement. The model should say it cannot find this rather than infer an answer from the expense lists.",
+      "expected_document_ids": [],
+      "expected_versions": [],
+      "expected_sections": [],
+      "question_type": "unanswerable",
+      "difficulty": "medium",
+      "answerable": false,
+      "grading_notes": "FIN-002 lists reimbursable and non-reimbursable items but neither list mentions gyms; inferring 'no' or 'yes' is a failure."
+    },
+    {
+      "question_id": "Q035",
+      "question": "What are the reception hours of the Chennai office?",
+      "expected_answer": "There is no Chennai office in the corpus. NX-OPS-002 lists only Hyderabad, Bengaluru and Pune and states Nexora has no other offices; Chennai appears only as a Tier A travel city, which does not indicate an office.",
+      "expected_document_ids": [
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-OPS-002 v2026.1"
+      ],
+      "expected_sections": [
+        "NX-OPS-002 v2026.1 §3",
+        "NX-OPS-002 v2026.1 §4.2"
+      ],
+      "question_type": "unanswerable",
+      "difficulty": "medium",
+      "answerable": false,
+      "grading_notes": "False-premise question: correct behaviour is to reject the premise, not invent hours."
+    },
+    {
+      "question_id": "Q036",
+      "question": "How much relocation allowance does Nexora pay an employee transferring from Pune to Hyderabad?",
+      "expected_answer": "Relocation is governed by a separate Relocation Policy that is not part of the corpus; the Travel Policy explicitly excludes relocation. The amount is not available.",
+      "expected_document_ids": [
+        "NX-FIN-001"
+      ],
+      "expected_versions": [
+        "NX-FIN-001 v2.0"
+      ],
+      "expected_sections": [
+        "NX-FIN-001 v2.0 §2.2"
+      ],
+      "question_type": "unanswerable",
+      "difficulty": "medium",
+      "answerable": false,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q037",
+      "question": "How many days of sabbatical leave can employees take?",
+      "expected_answer": "Sabbatical leave is not mentioned in the corpus. The model should not substitute Leave Without Pay rules.",
+      "expected_document_ids": [],
+      "expected_versions": [],
+      "expected_sections": [],
+      "question_type": "unanswerable",
+      "difficulty": "easy",
+      "answerable": false,
+      "grading_notes": "LWP (up to 90 days, HR-002 §4.6) is a distinct leave type; presenting it as sabbatical is a failure."
+    },
+    {
+      "question_id": "Q038",
+      "question": "Does Nexora sponsor MBA or other degree programmes?",
+      "expected_answer": "The Learning and Development Policy covers courses, certifications and conferences but does not address degree programme sponsorship. The information is not available.",
+      "expected_document_ids": [],
+      "expected_versions": [],
+      "expected_sections": [],
+      "question_type": "unanswerable",
+      "difficulty": "medium",
+      "answerable": false,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q039",
+      "question": "How many days of annual leave can I carry forward to next year?",
+      "expected_answer": "Up to 10 days; Annual Leave above 10 days lapses on 31 December. This is the current rule (NX-HR-002 v3.0, effective 1 April 2026), which first applies on 31 December 2026. The 15-day limit belongs to superseded version 2.0.",
+      "expected_document_ids": [
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §6.1",
+        "NX-HR-002 v3.0 §10.1"
+      ],
+      "question_type": "superseded",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "Answering 15 days means the archived v2.0 was used."
+    },
+    {
+      "question_id": "Q040",
+      "question": "Can I encash my unused leave at the end of the year?",
+      "expected_answer": "No. Year-end encashment was discontinued in version 3.0; the last year-end encashment was for the 2025 leave year, paid with the January 2026 salary under version 2.0. Annual Leave is encashed only at exit (up to 30 days).",
+      "expected_document_ids": [
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §6.3",
+        "NX-HR-002 v3.0 §10.3",
+        "NX-HR-002 v3.0 §6.4"
+      ],
+      "question_type": "superseded",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q041",
+      "question": "How many days a week can I work from home?",
+      "expected_answer": "Under the current policy (v2.0, from 1 February 2026) hybrid employees must work from the office at least three days a week, including Tuesday and Wednesday, so at most two remote days in a full working week (work-from-anywhere days are separately exempt). The earlier 'up to three WFH days' rule is from superseded version 1.0.",
+      "expected_document_ids": [
+        "NX-HR-003"
+      ],
+      "expected_versions": [
+        "NX-HR-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-HR-003 v2.0 §4.1",
+        "NX-HR-003 v2.0 §4.2"
+      ],
+      "question_type": "superseded",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "Inverted-rule trap: '3 days at home' (v1.0) vs '3 days in office' (v2.0)."
+    },
+    {
+      "question_id": "Q042",
+      "question": "On 31 December 2025 I had 28 days of unused Earned Leave. How many could I carry into 2026, and what happens to them at the end of 2026?",
+      "expected_answer": "The 2025 year-end was governed by version 2.0 (in force until 31 March 2026): up to 10 days could be encashed and up to 15 days carried forward, with any excess lapsing (e.g. encash 10, carry 15, 3 lapse). Under version 3.0's transition rules, the 15 carried days are retained in full and converted to Annual Leave on 1 April 2026; on 31 December 2026 a maximum of 10 days can be carried into 2027.",
+      "expected_document_ids": [
+        "NX-GOV-001",
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v2.0",
+        "NX-HR-002 v3.0",
+        "NX-GOV-001 v1.2"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v2.0 §6.1",
+        "NX-HR-002 v2.0 §6.2",
+        "NX-HR-002 v3.0 §10.1",
+        "NX-GOV-001 v1.2 §7.4"
+      ],
+      "question_type": "superseded",
+      "difficulty": "hard",
+      "answerable": true,
+      "grading_notes": "Requires deliberately using the archived version for a historical event, then the current version's transition clause."
+    },
+    {
+      "question_id": "Q043",
+      "question": "How much paternity leave can I take?",
+      "expected_answer": "10 working days, to be taken within three months of the birth or adoption, in a single block or up to two blocks.",
+      "expected_document_ids": [
+        "NX-HR-007"
+      ],
+      "expected_versions": [
+        "NX-HR-007 v2.1"
+      ],
+      "expected_sections": [
+        "NX-HR-007 v2.1 §3",
+        "NX-HR-007 v2.1 §5.1"
+      ],
+      "question_type": "superseded",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": "5 days within one month appears only in the revision history as the v1.0 rule."
+    },
+    {
+      "question_id": "Q044",
+      "question": "An L3 employee stayed in a hotel in Kochi in November 2025. What was the hotel limit per night?",
+      "expected_answer": "₹2,500. In 2025 Kochi was a Tier C city (edition 2025.1); it moved to Tier B only from 1 January 2026, and travel is assessed under the tiers in force at the time. The Tier C limit for L1–L3 is ₹2,500.",
+      "expected_document_ids": [
+        "NX-FIN-001",
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-OPS-002 v2026.1",
+        "NX-FIN-001 v2.0"
+      ],
+      "expected_sections": [
+        "NX-OPS-002 v2026.1 §4.2",
+        "NX-OPS-002 v2026.1 §9",
+        "NX-FIN-001 v2.0 §5.2"
+      ],
+      "question_type": "superseded",
+      "difficulty": "hard",
+      "answerable": true,
+      "grading_notes": "Using the current table gives Tier B ₹3,500 — wrong for 2025 travel."
+    },
+    {
+      "question_id": "Q045",
+      "question": "What is the expense approval limit for a Department Head?",
+      "expected_answer": "Claims from ₹25,001 to ₹1,00,000. This limit applies under version 2.0 of the approval matrix, effective 1 April 2026; it was ₹75,000 under version 1.1.",
+      "expected_document_ids": [
+        "NX-FIN-003"
+      ],
+      "expected_versions": [
+        "NX-FIN-003 v2.0"
+      ],
+      "expected_sections": [
+        "NX-FIN-003 v2.0 §4.1",
+        "NX-FIN-003 v2.0 §8"
+      ],
+      "question_type": "superseded",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q046",
+      "question": "What does 'Restricted' mean at Nexora?",
+      "expected_answer": "It has two meanings: (1) the highest data classification level — information for named individuals only whose disclosure would cause severe harm (e.g. passwords, keys, compensation, government IDs, client personal data); (2) a restricted holiday — an optional holiday; each employee may take two per year from the published list. A good answer gives both or asks which is meant.",
+      "expected_document_ids": [
+        "NX-IT-002",
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-IT-002 v2.1",
+        "NX-OPS-002 v2026.1"
+      ],
+      "expected_sections": [
+        "NX-IT-002 v2.1 §3.1",
+        "NX-OPS-002 v2026.1 §6.1",
+        "NX-OPS-002 v2026.1 §6.3"
+      ],
+      "question_type": "keyword_ambiguity",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q047",
+      "question": "What is Level 2?",
+      "expected_answer": "Ambiguous: Level 2 of the grievance procedure is handled by the HRBP with the Department Head (acknowledge in 2 working days, resolve in 10); job level L2 is Software Engineer / Analyst in the Foundation band. A good answer distinguishes the two or asks for clarification.",
+      "expected_document_ids": [
+        "NX-GOV-003",
+        "NX-HR-001"
+      ],
+      "expected_versions": [
+        "NX-GOV-003 v2.0",
+        "NX-HR-001 v4.0"
+      ],
+      "expected_sections": [
+        "NX-GOV-003 v2.0 §5",
+        "NX-HR-001 v4.0 §4.1"
+      ],
+      "question_type": "keyword_ambiguity",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q048",
+      "question": "What are the response and resolution times for a P1?",
+      "expected_answer": "A P1 NexDesk ticket has a first response target of 30 minutes and a resolution target of 4 hours. Ticket priority is separate from incident severity (Sev-1 to Sev-4), although every Sev-1 or Sev-2 incident is handled as a P1.",
+      "expected_document_ids": [
+        "NX-IT-001"
+      ],
+      "expected_versions": [
+        "NX-IT-001 v3.1"
+      ],
+      "expected_sections": [
+        "NX-IT-001 v3.1 §13.2"
+      ],
+      "question_type": "keyword_ambiguity",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "Answering with Sev-1 update frequency (every 2 hours) is a context error."
+    },
+    {
+      "question_id": "Q049",
+      "question": "Which tier is Hyderabad?",
+      "expected_answer": "Hyderabad is a Tier A city in the travel city tier classification. (Tiers 1–3 in the IT policy refer to NexDesk support teams, not cities.)",
+      "expected_document_ids": [
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-OPS-002 v2026.1"
+      ],
+      "expected_sections": [
+        "NX-OPS-002 v2026.1 §4.1"
+      ],
+      "question_type": "keyword_ambiguity",
+      "difficulty": "easy",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q050",
+      "question": "How much notice do I need to give to take a week of annual leave?",
+      "expected_answer": "Annual Leave of five or more consecutive working days must be applied for at least 14 calendar days before the first day of leave. (This is leave application notice, not the resignation notice period.)",
+      "expected_document_ids": [
+        "NX-HR-002"
+      ],
+      "expected_versions": [
+        "NX-HR-002 v3.0"
+      ],
+      "expected_sections": [
+        "NX-HR-002 v3.0 §5.2"
+      ],
+      "question_type": "keyword_ambiguity",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "10 calendar days is the superseded v2.0 rule; 60/90/120 days are resignation notice periods."
+    },
+    {
+      "question_id": "Q051",
+      "question": "Is an employee on a PIP on probation, and does their notice period change?",
+      "expected_answer": "No. A PIP is not probation under the Employee Handbook; the employee remains confirmed and serves the normal notice period for their level (e.g. 60 days for L1–L3, 90 for L4–L6). The 15-day probation notice applies only to new-hire probation.",
+      "expected_document_ids": [
+        "NX-HR-001",
+        "NX-HR-005",
+        "NX-HR-008"
+      ],
+      "expected_versions": [
+        "NX-HR-005 v2.1",
+        "NX-HR-008 v1.4",
+        "NX-HR-001 v4.0"
+      ],
+      "expected_sections": [
+        "NX-HR-005 v2.1 §9.5",
+        "NX-HR-008 v1.4 §4.5",
+        "NX-HR-008 v1.4 §4.1",
+        "NX-HR-001 v4.0 §5"
+      ],
+      "question_type": "keyword_ambiguity",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q052",
+      "question": "What is the hotel limit and per diem for an L5 Manager travelling to Mumbai in August 2026?",
+      "expected_answer": "Hotel limit ₹7,500 per night and per diem ₹1,500 per day. Mumbai is Tier A, and Amendment A1 (effective 1 July 2026) replaced the Tier A L4–L6 limit of ₹6,000 and the Tier A per diem of ₹1,200.",
+      "expected_document_ids": [
+        "NX-FIN-001",
+        "NX-FIN-001-A1",
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-FIN-001 v2.0",
+        "NX-FIN-001-A1 v1.0",
+        "NX-OPS-002 v2026.1"
+      ],
+      "expected_sections": [
+        "NX-FIN-001 v2.0 §5.2",
+        "NX-FIN-001-A1 v1.0 §3.1",
+        "NX-FIN-001-A1 v1.0 §3.2",
+        "NX-OPS-002 v2026.1 §4.1"
+      ],
+      "question_type": "amendment_combination",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "₹6,000 / ₹1,200 = amendment ignored."
+    },
+    {
+      "question_id": "Q053",
+      "question": "A Hyderabad-based L2 will stay 20 consecutive nights in Bengaluru in September 2026. What is the nightly hotel limit?",
+      "expected_answer": "₹4,125 per night. Stays over 15 consecutive nights use 75% of the applicable limit (base policy §5.3), calculated on the amended Tier A limit for L1–L3 of ₹5,500: 75% × ₹5,500 = ₹4,125.",
+      "expected_document_ids": [
+        "NX-FIN-001",
+        "NX-FIN-001-A1",
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-FIN-001 v2.0",
+        "NX-FIN-001-A1 v1.0",
+        "NX-OPS-002 v2026.1"
+      ],
+      "expected_sections": [
+        "NX-FIN-001 v2.0 §5.3",
+        "NX-FIN-001-A1 v1.0 §3.1",
+        "NX-FIN-001-A1 v1.0 §4",
+        "NX-OPS-002 v2026.1 §4.1"
+      ],
+      "question_type": "amendment_combination",
+      "difficulty": "hard",
+      "answerable": true,
+      "grading_notes": "₹3,375 (75% of old ₹4,500) = amendment ignored."
+    },
+    {
+      "question_id": "Q054",
+      "question": "What is the hotel limit for an L4 Lead travelling to Kochi in August 2026?",
+      "expected_answer": "₹4,500 per night (per diem ₹1,000). Kochi is Tier B from 2026, and Amendment A1 changes only Tier A, so the base Tier B limit applies.",
+      "expected_document_ids": [
+        "NX-FIN-001",
+        "NX-FIN-001-A1",
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-FIN-001 v2.0",
+        "NX-OPS-002 v2026.1",
+        "NX-FIN-001-A1 v1.0"
+      ],
+      "expected_sections": [
+        "NX-FIN-001 v2.0 §5.2",
+        "NX-FIN-001 v2.0 §6.1",
+        "NX-OPS-002 v2026.1 §4.1",
+        "NX-FIN-001-A1 v1.0 §4"
+      ],
+      "question_type": "amendment_combination",
+      "difficulty": "hard",
+      "answerable": true,
+      "grading_notes": "Applying A1 to a Tier B city is a precision error."
+    },
+    {
+      "question_id": "Q055",
+      "question": "What hotel limit and per diem apply to an L7 Director visiting Delhi in September 2026?",
+      "expected_answer": "Hotel limit ₹9,000 per night (unchanged by Amendment A1) and per diem ₹1,500 per day (raised by A1 for all levels in Tier A).",
+      "expected_document_ids": [
+        "NX-FIN-001",
+        "NX-FIN-001-A1",
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-FIN-001 v2.0",
+        "NX-FIN-001-A1 v1.0",
+        "NX-OPS-002 v2026.1"
+      ],
+      "expected_sections": [
+        "NX-FIN-001-A1 v1.0 §3.1",
+        "NX-FIN-001-A1 v1.0 §3.2",
+        "NX-OPS-002 v2026.1 §4.1"
+      ],
+      "question_type": "amendment_combination",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": "Trap: assuming L7 is entirely unaffected gives the wrong per diem (₹1,200)."
+    },
+    {
+      "question_id": "Q056",
+      "question": "An L2 stays in Mumbai from the night of 29 June 2026 until the morning of 2 July 2026. What hotel limits and per diem apply?",
+      "expected_answer": "Nights of 29 and 30 June: ₹4,500 each; night of 1 July: ₹5,500. Per diem: ₹1,200 for 29 and 30 June and ₹1,500 for 1 and 2 July. The amendment applies by date of stay, and each night and day is assessed separately.",
+      "expected_document_ids": [
+        "NX-FIN-001",
+        "NX-FIN-001-A1"
+      ],
+      "expected_versions": [
+        "NX-FIN-001 v2.0",
+        "NX-FIN-001-A1 v1.0"
+      ],
+      "expected_sections": [
+        "NX-FIN-001 v2.0 §5.2",
+        "NX-FIN-001 v2.0 §6.1",
+        "NX-FIN-001-A1 v1.0 §5.1",
+        "NX-FIN-001-A1 v1.0 §5.2"
+      ],
+      "question_type": "amendment_combination",
+      "difficulty": "hard",
+      "answerable": true,
+      "grading_notes": ""
+    },
+    {
+      "question_id": "Q057",
+      "question": "A Bengaluru-based L4 must travel to Pune during a major trade fair in October 2026 and hotels are expensive. What is the maximum hotel rate, and who approves it?",
+      "expected_answer": "Up to ₹9,375 per night (25% above the amended Tier A limit of ₹7,500), approved by the Department Head before booking. The peak-period rule was added as FIN-001 §5.8 by Amendment A1, using the Department Head's authority to approve hotel costs above the limit.",
+      "expected_document_ids": [
+        "NX-FIN-001-A1",
+        "NX-FIN-003",
+        "NX-OPS-002"
+      ],
+      "expected_versions": [
+        "NX-FIN-001-A1 v1.0",
+        "NX-FIN-003 v2.0",
+        "NX-OPS-002 v2026.1"
+      ],
+      "expected_sections": [
+        "NX-FIN-001-A1 v1.0 §3.3",
+        "NX-FIN-001-A1 v1.0 §3.1",
+        "NX-FIN-003 v2.0 §4.1",
+        "NX-OPS-002 v2026.1 §4.1"
+      ],
+      "question_type": "amendment_combination",
+      "difficulty": "medium",
+      "answerable": true,
+      "grading_notes": ""
+    }
+  ]
+}
