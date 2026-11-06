@@ -1,0 +1,38 @@
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+
+# --- Runtime data ---
+backend/storage/
+qdrant-local/
+
+# --- Model caches (if pointed inside the repo) ---
+# (Not "models/": that would also ignore backend/app/models/, our ORM package.)
+.cache/
+hf-cache/
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Your own RAG source documents (may be private / not redistributable) ---
+rag-documents/*
+!rag-documents/README.md

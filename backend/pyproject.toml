@@ -1,0 +1,47 @@
+[project]
+name = "enterprise-knowledge-intelligence"
+version = "0.1.0"
+description = "RAG platform: knowledge bases, document ingestion, hybrid retrieval and grounded answers with citations."
+requires-python = ">=3.12,<3.13"
+
+# torch is installed separately from the CPU-only index (see README step 3),
+# so pip doesn't pull the multi-GB CUDA build. sentence-transformers then reuses it.
+dependencies = [
+    # configuration
+    "python-dotenv>=1.0",
+    # Markdown front matter (S2); always yaml.safe_load, never yaml.load
+    "pyyaml>=6.0",
+    # PostgreSQL (Neon)
+    "sqlalchemy>=2.1,<2.2",
+    "psycopg[binary]>=3.3,<3.4",
+    "certifi",  # CA bundle for sslmode=verify-full on Windows
+    # vector database: client minor version must match the Qdrant server (1.20)
+    "qdrant-client>=1.20,<1.21",
+    # LLM
+    "google-genai>=2.34,<3",
+    # local embeddings + cross-encoder reranking
+    "sentence-transformers>=6.2,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
