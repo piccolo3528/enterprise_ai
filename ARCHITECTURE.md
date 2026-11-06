@@ -117,7 +117,24 @@ models/ (SQLAlchemy), vector_store (Qdrant), llm client (Gemini), storage (disk)
 | `llm` | Gemini client, prompt templates, streaming, retries/backoff, client-side rate limiting, error mapping. |
 | `rag` | Orchestrates the whole pipeline and records per-stage latency. |
 | `conversation` | Persists conversations and messages and builds token-budgeted history. |
+| `health` | Checks Neon and Qdrant concurrently (each with a 15 s timeout) for `GET /api/health`. |
 | `evaluation/` (outside `app/`) | Offline evaluation: dataset, metrics, runner, reports. |
+
+### 2.3 API conventions (implemented in M2)
+
+- **One error shape** for every failure:
+  `{"error": {"code": "not_found", "message": "...", "request_id": "3f9c0a1b2d4e"}}`. `code` is
+  stable for the frontend, `message` is safe to display, and validation errors add
+  `details: [{field, message}]`. Submitted values are never echoed, because they may be passwords.
+- **Request IDs.** Every response has an `X-Request-ID` header, and the same ID appears in every
+  server log line for that request and in the error body. A screenshot of an error leads straight
+  to the log.
+- **Unexpected errors** return a generic 500. The traceback goes to the server log only.
+- **`GET /api/health`** always returns HTTP 200 with `status: ok | degraded` and a status, latency
+  and short error per service, so the status page can show *which* part is down. It spends no
+  Gemini quota (it only reports whether the key is configured).
+- **Configuration errors** stop startup with the list of variables to fix. Values are never printed,
+  because pydantic's default message would echo a bad `DATABASE_URL`, password included.
 
 ---
 
@@ -401,6 +418,25 @@ trip**, about **1.35 s per new connection**, and about **4.9 s for the very firs
 - **Keep sequential queries per request to two or fewer**: take the user ID from the JWT instead of
   looking it up, fold ownership checks into the data query, and batch ingestion inserts.
 - **Warm the pool at startup**, so the first user request doesn't pay the one-time setup cost.
+  *Implemented in M2:* Neon and Qdrant are warmed concurrently in the background (server ready
+  immediately; warm-up ~4.5 s). There is deliberately **no keep-alive ping**: it would stop Neon
+  from ever suspending, and 0.25 CU × 730 h ≈ 182 CU-hours a month is more than the free plan's 100.
+
+**Measured in M2: one pooled request = 4 network round trips** (round trip ~200–290 ms depending
+on the day, so ~0.8–1.1 s for a single `SELECT 1`):
+
+| Step | Round trips | Cause |
+|---|---|---|
+| Pre-ping | 1 | `pool_pre_ping=True` checks the connection is alive |
+| `BEGIN` | 1 | psycopg sends it as its own message before a transaction's first statement |
+| The query | 1 | |
+| `ROLLBACK`/`COMMIT` | 1 | Ends the transaction when the connection returns to the pool |
+
+Turning pre-ping off measured 3 round trips (611 ms vs 815 ms). Options to cut this, to be decided
+in M4 with real queries (D27): autocommit for read-only requests (removes `BEGIN` and `ROLLBACK`);
+relying on `pool_recycle=240` instead of pre-ping (a connection that sat idle long enough for Neon to
+suspend is always older than 240 s, so it is recycled anyway), plus one retry on a dropped
+connection; or moving the database to a region closer to the backend (L24).
 
 **Scale to zero (cold starts).** On the free plan the compute always suspends after 5 minutes idle,
 and this can't be disabled. The first request after a pause therefore takes longer. That's
@@ -608,11 +644,13 @@ enterprise-ai/
 │   ├── alembic.ini
 │   ├── alembic/versions/
 │   ├── app/
-│   │   ├── main.py             # app factory, middleware, router registration
+│   │   ├── main.py             # uvicorn entry point: `app = create_app()`
+│   │   ├── factory.py          # app factory: lifespan (clients, warm-up), middleware, routers
 │   │   ├── core/
 │   │   │   ├── config.py       # pydantic-settings: every env var in one place
 │   │   │   ├── security.py     # password hashing, JWT
 │   │   │   ├── errors.py       # domain exceptions → HTTP responses
+│   │   │   ├── middleware.py   # request ID, timing log, last-resort 500 (plain ASGI)
 │   │   │   ├── rate_limit.py   # per-user API limiter
 │   │   │   └── logging.py
 │   │   ├── db/

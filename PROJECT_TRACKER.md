@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-06** · Current milestone: **M1 — Services & Connectivity Verification (all checks PASS; committed; push pending GitHub sign-in as piccolo3528)** · Next: **M2 — Backend Skeleton**
+> Last updated: **2026-11-06** · Current milestone: **M2 — Backend Skeleton (COMPLETED)** · Next: **M3 — Frontend Skeleton**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -149,12 +149,12 @@ explain the concept back in your own words (or answer the related interview ques
 
 | # | Concept | One-line explanation | Implementation status | Understood? | Related files (planned) |
 |---|---|---|---|---|---|
-| 1 | Layered backend architecture | Routes handle HTTP and services hold logic, so logic is testable without HTTP | NOT STARTED | ☐ | `app/api/`, `app/services/` |
-| 2 | Config via environment (12-factor) | Secrets and addresses come from env vars, validated at startup; this is also what makes Docker easy later | NOT STARTED | ☐ | `app/core/config.py`, `.env.example` |
+| 1 | Layered backend architecture | Routes handle HTTP and services hold logic, so logic is testable without HTTP | IN PROGRESS (M2: route → `services/health.py`; app factory + dependencies) | ☐ | `app/api/`, `app/services/`, `app/factory.py` |
+| 2 | Config via environment (12-factor) | Secrets and addresses come from env vars, validated at startup; this is also what makes Docker easy later | COMPLETED (M2: typed settings, `SecretStr`, errors that never echo values) | ☐ | `app/core/config.py`, `.env.example` |
 | 3 | Virtual environments & dependency pinning | Isolated per-project Python packages; reproducible installs | COMPLETED (M1: `backend/.venv`, `pyproject.toml`) | ☐ | `backend/pyproject.toml` |
-| 4 | Managed/serverless PostgreSQL | The database runs in the cloud; compute scales to zero and storage is separate | IN PROGRESS (M1: observed cold start ~5 s, ~290 ms RTT) | ☐ | `scripts/verify_setup.py` → `app/db/session.py` (M2) |
-| 5 | TLS & channel binding | Encrypting the DB connection and authenticating the server | IN PROGRESS (M1: TLS + channel binding + verify-full verified) | ☐ | `scripts/verify_setup.py` → `app/db/session.py` (M2) |
-| 6 | Connection pooling (client + PgBouncer) | Reusing connections; transaction-mode rules; stale connections after scale-to-zero | IN PROGRESS (M1: measured why — 1.35 s per new connection) | ☐ | `scripts/verify_setup.py` → `app/db/session.py` (M2) |
+| 4 | Managed/serverless PostgreSQL | The database runs in the cloud; compute scales to zero and storage is separate | COMPLETED (M2: background warm-up at startup; deliberately no keep-alive, to save compute hours) | ☐ | `app/db/session.py`, `app/factory.py` |
+| 5 | TLS & channel binding | Encrypting the DB connection and authenticating the server | COMPLETED (M2: app uses `verify-full` + certifi + channel binding; live test checks the parameters) | ☐ | `app/db/session.py`, `tests/integration/test_live_services.py` |
+| 6 | Connection pooling (client + PgBouncer) | Reusing connections; transaction-mode rules; stale connections after scale-to-zero | IN PROGRESS (M2: pool live; measured 4 round trips per pooled request; tuning decision D27 in M4) | ☐ | `app/db/session.py` |
 | 7 | Database branching | Copy-on-write DB copies for safe testing | NOT STARTED | ☐ | `tests/conftest.py` |
 | 8 | ORM & migrations | Python classes ↔ tables; Alembic versions every schema change | NOT STARTED | ☐ | `app/models/`, `alembic/` |
 | 9 | Password hashing (Argon2id) | Slow, salted, memory-hard hashing, so stolen hashes resist cracking | NOT STARTED | ☐ | `app/core/security.py` |
@@ -202,6 +202,9 @@ explain the concept back in your own words (or answer the related interview ques
 | 51 | Answer relevance | Does the answer address the question? | NOT STARTED | ☐ | `evaluation/metrics.py` |
 | 52 | Latency profiling | Per-stage timings to find bottlenecks (incl. Neon cold start) | NOT STARTED | ☐ | `rag.py`, `evaluation/run_eval.py` |
 | 53 | Cross-store consistency | Ordering writes/deletes across Neon and Qdrant to fail safely | NOT STARTED | ☐ | `ingestion/pipeline.py`, `routes/documents.py` |
+| 54 | Async I/O & thread offloading | `async` routes stay responsive; blocking clients run in threads (`asyncio.to_thread`); independent calls run concurrently (`gather`) | IN PROGRESS (M2: health checks run in parallel: ~1 s, not ~1.6 s) | ☐ | `services/health.py`, `factory.py` |
+| 55 | Observability: request IDs & error contracts | One ID ties a response, its error body and its log lines together; one stable error shape; internals never leak | COMPLETED (M2) | ☐ | `core/middleware.py`, `core/errors.py`, `core/logging.py` |
+| 56 | Latency budgets & round trips | Count network round trips per request; distance sets the price of each | IN PROGRESS (M2: 4 trips per pooled query measured; D27) | ☐ | `ARCHITECTURE.md` §4.12, `db/session.py` |
 
 ---
 
@@ -223,12 +226,12 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Expected output:** Approved ARCHITECTURE.md, PROJECT_TRACKER.md, README.md.
 - **Dependencies:** none. **Testing:** review only.
 
-### M1 — Accounts, Services & Connectivity Verification · `IN PROGRESS` (all checks PASS; committed; only the first push remains)
+### M1 — Accounts, Services & Connectivity Verification · `COMPLETED` (2026-11-06)
 - **Objective:** Prove every external dependency works on *this* machine before any app code depends on it.
 - **Tasks:**
   - [x] `git init -b main`; verified that `.env`, `.venv` and `rag-documents/*` are ignored (staging dry run)
   - [x] Commits `39690c9` (plan + environment scripts) and `2e335ab` (evaluation corpus + validator); repo-local identity with the GitHub noreply email (D26)
-  - [ ] **Push to `github.com/piccolo3528/enterprise_ai`, blocked:** this PC's Git Credential Manager is signed in as `jmohammadumair` (403). The repo is now configured to request `piccolo3528`; the user runs `git push -u origin main` once to sign in.
+  - [x] Pushed to `github.com/piccolo3528/enterprise_ai` (verified: local `main` = `origin/main` = `95bc4d4`, 0 ahead / 0 behind). The first attempt failed with 403 because Git Credential Manager held only the office account `jmohammadumair` (VS Code's GitHub sign-in is separate from command-line Git). The fix was a remote URL with the username (`https://piccolo3528@github.com/...`), so this repo uses its own credential; the user signed in once.
   - [x] Installed official Python 3.12.10 per-user via `winget` (the only previous 3.12 was a temporary interpreter from another tool session)
   - [x] Backend venv (`backend/.venv`); CPU-only `torch` 2.15.0+cpu; `pyproject.toml` with M1 deps; `pip install -e ".[dev]"`
   - [x] S6: moved `CORPUS_SPEC.md` to `backend/evaluation/`
@@ -253,16 +256,21 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M0 approval; user accounts (Neon, Google AI Studio).
 - **Testing:** the verification script *is* the test; any ✘ blocks M2 until resolved or a fallback (e.g. Qdrant Cloud) is approved.
 
-### M2 — Backend Skeleton · `NOT STARTED`
+### M2 — Backend Skeleton · `COMPLETED` (2026-11-06)
 - **Objective:** A clean FastAPI foundation the rest of the app plugs into.
 - **Tasks:**
-  - [ ] Extend `pyproject.toml` (FastAPI, Uvicorn, pydantic-settings; created in M1)
-  - [ ] `app/main.py` (app factory, routers, exception handlers), `core/config.py` (pydantic-settings, secrets never logged), `core/logging.py`, `core/errors.py` (uniform error JSON)
-  - [ ] `db/session.py`: engine tuned for Neon (pre-ping, recycle 240 s, pool 5+5, `connect_timeout=30`, `prepare_threshold=None`, `sslnegotiation=direct`, verify-full via certifi — D23); pool warm-up at startup
-  - [ ] `GET /api/health`: Neon (latency), Qdrant, Gemini key configured (bool), model names
-- **Expected output:** `uvicorn app.main:app --reload` → `/docs` and `/api/health` work.
+  - [x] Extend `pyproject.toml`: FastAPI 0.162, Uvicorn 0.54 (`[standard]`), pydantic-settings 2.16, httpx (dev); pytest `live` marker, excluded by default
+  - [x] `core/config.py`: every env var typed; secrets as `SecretStr`; validation of placeholders, the URL driver, JWT length and RAG numbers; `ConfigError` lists variable names and **never values** (pydantic's own message would echo a bad `DATABASE_URL`, password included)
+  - [x] `core/logging.py` (request ID on every line), `core/middleware.py` (plain-ASGI request ID + timing + last-resort 500, safe for SSE), `core/errors.py` (one error JSON shape; validation errors never echo input)
+  - [x] `factory.py` (app factory + lifespan) and `main.py` (uvicorn entry), split so tests never load `backend/.env`
+  - [x] `db/session.py`: engine per D23 (pre-ping, recycle 240 s, pool 5+5, `connect_timeout=30`, `prepare_threshold=None`, `sslnegotiation=direct`, **`verify-full` + certifi**), session factory (`expire_on_commit=False`), `ping`, `warm_up`
+  - [x] Background warm-up of Neon **and** Qdrant at startup (concurrent); failure is logged, never blocks startup; no keep-alive (would burn free compute hours)
+  - [x] `GET /api/health`: Neon + Qdrant checked **concurrently** with a 15 s timeout each; Gemini key configured (bool, no quota used); model names; always 200 with `status: ok | degraded`
+  - [x] `api/deps.py`: settings, engine, Qdrant and per-request DB session dependencies (`Annotated` aliases)
+- **Expected output:** `uvicorn app.main:app --reload` → `/docs` and `/api/health` work. **Achieved:** `/docs` 200; `/api/health` 200 `"status":"ok"`, DB ~0.8–1.05 s, Qdrant ~245 ms, total ≈ the slower check.
 - **Dependencies:** M1.
-- **Testing:** pytest: config validation (missing secret → clear error), health endpoint (services mocked + one live check); ruff clean.
+- **Testing:** 26 unit tests (config, errors, health with fakes, startup warm-up) + 3 live tests; ruff clean. See §F.8.
+- **Open (your check, 10 seconds):** in the VS Code terminal, save any file under `app/` while `--reload` is running and confirm the log shows a new "Started server process". My tool runs processes without a real console, so uvicorn's Windows restart signal (Ctrl+C event) never reaches the worker. A trivial one-file FastAPI app behaves identically there, so it isn't our code.
 
 ### M3 — Frontend Skeleton · `NOT STARTED`
 - **Objective:** A React app that talks to the backend through the dev proxy.
@@ -436,17 +444,20 @@ Each milestone is small enough to finish, test and understand in one or two sess
 ## F. Progress Tracking
 
 ### F.1 Completed functionality (verified)
-- No application features yet.
-- Development environment + all external services verified end to end (M1, §F.8).
+- Development environment + all external services verified end to end (M1, §F.8); repo on GitHub.
+- Backend skeleton (M2): validated configuration, Neon pool with `verify-full` TLS, startup
+  warm-up, uniform error responses with request IDs, `GET /api/health`, `/docs`.
+- No user-facing features yet (auth, knowledge bases and documents start in M4–M7).
 
 ### F.2 In progress
-- M1: first git commit (waiting for your git identity).
+- Nothing. M3 (frontend skeleton) is next.
 
 ### F.3 Remaining functionality
-- Everything in M2–M17 (M18 optional).
+- Everything in M3–M17 (M18 optional).
 
 ### F.4 Known bugs
-- _None (no code yet)._
+- _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
+  AI tool's console-less shell (identical with a trivial app). To be confirmed in a real terminal (M2 open item).
 
 ### F.5 Technical limitations & risks
 
@@ -454,7 +465,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 |---|---|---|---|
 | L1 | **Gemini free-tier content may be used by Google to improve its products** | Not for confidential data | README + UI warning; LLM behind an interface → paid tier/local model swap |
 | L2 | Gemini free quotas unpublished, per project, can change | 429s / daily cap during use | ≤2 calls per question; threshold gate; backoff; clear UI errors; model IDs in env |
-| L3 | **Neon scale-to-zero (5 min, can't be disabled on free)** | First request after idle is slower; pooled connections die | `pool_pre_ping`, `pool_recycle=240`, `connect_timeout=10`; health shows DB latency |
+| L3 | **Neon scale-to-zero (5 min, can't be disabled on free)** | First request after idle is slower; pooled connections die | `pool_pre_ping`, `pool_recycle=240`, `connect_timeout=30`; startup warm-up (M2); health shows DB latency |
 | L4 | **Neon free compute: 100 CU-hours/month**, then compute is suspended until next month | DB unavailable for the rest of the month if exceeded | Cap autoscaling at 0.25–0.5 CU in the Neon console; scale-to-zero saves hours when idle; check usage in the console |
 | L5 | **Neon free storage: 1 GB/project**, then writes are blocked | Uploads fail when full | ~5 KB/chunk ≈ 200k chunks; vectors live in Qdrant, not Neon; storage shown in settings (M16) |
 | L6 | Neon requires internet; app data (incl. chunk text) is stored in the cloud | No offline dev; data residency | Pick the nearest region; non-confidential docs only |
@@ -475,7 +486,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L21 | English FTS config & English embedding model | Weak on non-English docs | Documented; config swap |
 | L22 | LLM-as-judge uses the same model family | Bias; quota cost | Small dataset, cached, spot-checked |
 | L23 | Neon's docs don't explicitly confirm built-in FTS | Hybrid search design depends on it | Scripted check in M1 before M4 |
-| L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~290 ms per DB query**, ~1.35 s per new DB connection, ~260 ms per Qdrant search. Three sequential queries in one request ≈ 0.9 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. Optional: recreate the still-empty Neon project in an Asia region (needs user decision). |
+| L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~200–290 ms per round trip** (varies by day), ~1.35 s per new DB connection, ~245 ms per Qdrant call. **M2: one pooled query = 4 round trips** (pre-ping, `BEGIN`, query, `ROLLBACK`) ≈ 0.8–1.05 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. Optional: recreate the still-empty Neon project in an Asia region (needs user decision). |
 | L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored; **recommended: reset the Neon role password** |
 
 ### F.6 Decision Log
@@ -504,11 +515,16 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D20 | 2026-11-06 | Integration tests on a Neon **`test` branch** (`TEST_DATABASE_URL`) | Tests can never touch dev data; free plan includes branches | Same DB with cleanup; SQLite for tests (rejected by user rule) | Proposed |
 | D21 | 2026-11-06 | `sslmode=require&channel_binding=require`; try `verify-full` in M1 | Neon-required TLS + mutual SCRAM auth; `verify-full` needs a CA bundle on Windows | `verify-full` from day one | Proposed |
 | D16a | 2026-11-06 | **Qdrant Cloud free tier becomes primary** — *revises D16 (local binary primary)* | User chose it: no `.exe` on a work laptop, no process to start each day | Local Windows binary (kept as the alternative; only `QDRANT_URL`/`QDRANT_API_KEY` differ) | **Approved (user)** |
-| D23 | 2026-11-06 | Neon connections: `connect_timeout=30`, `sslnegotiation=direct`, **`sslmode=verify-full` with `sslrootcert=certifi.where()`** (set in code via `connect_args`, so the `.env` URL stays portable) — *refines D19/D21* | Measured: 10 s timed out on a cold start; direct negotiation saves one ~290 ms round trip; verify-full works with certifi but not with `system` on Windows | `sslmode=require` only | Proposed (adopt in M2) |
+| D23 | 2026-11-06 | Neon connections: `connect_timeout=30`, `sslnegotiation=direct`, **`sslmode=verify-full` with `sslrootcert=certifi.where()`** (set in code via `connect_args`, so the `.env` URL stays portable) — *refines D19/D21* | Measured: 10 s timed out on a cold start; direct negotiation saves one ~290 ms round trip; verify-full works with certifi but not with `system` on Windows | `sslmode=require` only | **Adopted (M2)**: live test confirms the connection runs with `sslmode=verify-full`, `sslnegotiation=direct` and certifi's CA file, overriding the URL's `require` |
 | D25 | 2026-11-06 | Evaluation dataset lives in `evaluation/datasets/`, **outside** `corpus/`; spec + index also outside | Uploading the `corpus/` folder can never ingest the answer key or the spec's facts register (which would leak answers into retrieval) | Keep the spec's `corpus/evaluation/` layout | Accepted |
 | D26 | 2026-11-06 | Commit identity uses the GitHub **noreply** email | Commits are public; keeps the personal Gmail out of history | Personal email | Accepted (changeable) |
 | D24 | 2026-11-06 | Neon runs **PostgreSQL 18.6** (project default) instead of the planned 17 | All features we need (generated columns, FTS, GIN) are present; verified by script | Recreate on 17 | Accepted |
 | D22 | 2026-11-06 | **Groq as an optional fallback LLM provider**; Gemini stays default | User request; Groq has a free tier. Kept behind the `llm` interface so the RAG code doesn't change. | xAI Grok (no standing free API tier; rejected under the no-paid-APIs rule) | Proposed: env placeholders only; integration milestone TBD |
+| D27 | 2026-11-06 | **Open, decide in M4:** reduce the 4 round trips per pooled query. Options: (a) autocommit for read-only requests (−2 trips); (b) drop `pool_pre_ping`, rely on `pool_recycle=240` + one retry on a dropped connection (−1 trip); (c) move Neon/Qdrant to an Asia region (cheaper trips, L24) | Measured in M2: pre-ping, `BEGIN`, query and `ROLLBACK` each cost a full round trip (815 ms; 611 ms without pre-ping) | Keep as is (simplest, slowest) | **Needs your decision** in M4, with real queries measured |
+| D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
+| D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
+| D30 | 2026-11-06 | Warm Neon + Qdrant in the background at startup; no periodic keep-alive | Server is ready immediately; the first user request doesn't pay ~4.5 s. A keep-alive would stop Neon suspending (≈182 CU-h/month > 100 free) | Blocking warm-up; keep-alive ping | Accepted (M2) |
+| D31 | 2026-11-06 | Request-ID/timing/500 middleware written as plain ASGI | Starlette's `BaseHTTPMiddleware` can buffer responses (bad for SSE in M13), and catch-all exception handlers run outside middleware, so the 500 would lose its request ID | `BaseHTTPMiddleware`; `Exception` handler | Accepted (M2) |
 
 ### F.7 Changes in technology choices
 
@@ -535,6 +551,14 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-06 | M1 | `verify_setup.py` run 2 (timeout 30 s, direct SSL negotiation, certifi) | ✔ 9/9 | Neon pooled + direct (PG 18.6, TLS), **FTS** (stemming, phrase, exclusion, ts_rank_cd, GIN used), verify-full, Qdrant lifecycle + tenant filter (search ~260 ms), Gemini generate (~1.5–2 s) + stream (first token ~1 s), models offline, Groq list. First SQLAlchemy query ~4.9 s (connect + dialect-initialisation round trips). |
 | 2026-11-06 | M1 | `ruff check` + `ruff format --check` on `scripts/` | ✔ | Clean |
 | 2026-11-06 | M1 | `evaluation/validate_corpus.py` | ✔ 0 FAIL / 0 WARN | 22 docs, 57 questions; run 1 had 3 FAIL + 1 WARN, all validator over-strictness (fixed) |
+| 2026-11-06 | M1 | `git push` + `git rev-list --left-right --count main...origin/main` | ✔ | `0 0`; GitHub `main` = `95bc4d4` |
+| 2026-11-06 | M2 | `pytest` (unit) | ✔ 26 passed | Config (13: missing/placeholder/bad URL without leaking the password, JWT length, RAG numbers, empty env = unset, masking), errors (5: shape, 404/405, generic 500 with traceback only in the log, validation never echoes input), health with fakes (7: ok, request ID, DB failure without leaking the message, Qdrant failure, timeout, **concurrency**, missing Gemini key), startup (1: warm-up runs; a failing warm-up doesn't block) |
+| 2026-11-06 | M2 | `pytest -m live` | ✔ 3 passed | Real health `ok`; connection runs with `sslmode=verify-full`, `sslnegotiation=direct`, certifi CA; session factory queries |
+| 2026-11-06 | M2 | `ruff check` + `ruff format --check` (`app`, `tests`) | ✔ | Clean (fixed: B008 → `Annotated` dependencies; UP047 → PEP 695 generics) |
+| 2026-11-06 | M2 | Manual: `uvicorn app.main:app` | ✔ | `/docs` 200. `/api/health` 200 `ok`. Unknown route → 404 JSON; POST → 405 JSON; `X-Request-ID` on all. Log shows "configuration: …'set'…" (no values). Warm-up: Qdrant 0.77–0.92 s, DB 3.6–4.7 s |
+| 2026-11-06 | M2 | Pool probe (scratch script) | ℹ | Warm-up 3.59 s (new connection + dialect setup). Pooled `SELECT 1` = **815 ms = 4 round trips** (pre-ping, BEGIN, SELECT, ROLLBACK); without pre-ping 611 ms. Round trip today ~204 ms (M1: ~290) → D27 |
+| 2026-11-06 | M2 | Warm-up effect | ✔ | Before Qdrant warm-up: 1st request Qdrant 808 ms, later 244 ms. After: 1st request 248 ms. DB 1st request after warm-up = same as later ones (816 ms). A request arriving *during* warm-up opens its own connection (1.68 s), explained by log timestamps |
+| 2026-11-06 | M2 | Manual: `--reload` restart | ⚠ not verifiable here | Change detected ("WatchFiles detected changes"), but the worker never restarts when started from the AI tool's shell (Windows Ctrl+C event needs a console). A trivial FastAPI app behaves identically. User to confirm in the VS Code terminal |
 
 ### F.9 Environment facts
 Python **3.12.10** (official, per-user, `%LOCALAPPDATA%\Programs\Python\Python312`; `py -3.12`), Node v26.13.0,
@@ -543,6 +567,8 @@ not installed (not needed; Neon).
 **Installed in `backend/.venv` (2026-11-06):** torch 2.15.0+cpu, sentence-transformers 6.2.0,
 transformers 5.22.1, numpy 2.5.4, google-genai 2.34.0, qdrant-client 1.20.0, SQLAlchemy 2.1.8,
 psycopg 3.3.8 (bundled libpq 18), python-dotenv 1.2.4, certifi, pytest 9.2.0, ruff 0.17.4.
+**Added in M2:** fastapi 0.162.0 (Starlette 1.10.0), uvicorn 0.54.0, pydantic 2.14.3,
+pydantic-settings 2.16.2, httpx 0.28.1.
 **Model cache:** `%USERPROFILE%\.cache\huggingface` (bge-small-en-v1.5, ms-marco-MiniLM-L-6-v2).
 **Gemini free-tier limits for your project:** _to fill in from AI Studio (RPM / TPM / RPD per model)._
 **Neon project:** AWS `us-east-1`, database `neondb`, role `neondb_owner`; PG version _to confirm in M1_.
@@ -584,17 +610,22 @@ evaluation schema. Proposed changes:
   section path) rather than mostly split them.
 
 ### F.10 Next recommended action
-1. Run `git push -u origin main` once and sign in as **piccolo3528** in the browser window → closes M1.
-2. Optional decision: keep Neon in `us-east-1` or recreate it in an Asia region (L24).
-3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
-4. Start **M2 — Backend Skeleton**.
+1. Confirm `uvicorn app.main:app --reload` restarts on file save in the VS Code terminal (M2 open item).
+2. Start **M3 — Frontend Skeleton** (Vite + React + Tailwind; system-status page on `/api/health`).
+3. Before M4: decide D27 (round trips per query) and, related, whether to move Neon to an Asia region (L24).
+   Create the Neon `test` branch and set `TEST_DATABASE_URL`.
+4. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`; reset the Neon password (L25).
 
 ---
 
 ## G. Interview Preparation
 
 ### G.1 Concepts implemented
-- _None yet. Only verified implementations are listed here._
+- **Typed, fail-fast configuration** with secrets that can't leak through `repr`, logs or validation errors (M2).
+- **Connection pooling for a scale-to-zero cloud database**: pre-ping, recycle below the suspend
+  window, TLS `verify-full`, background warm-up, and a measured per-request round-trip budget (M2).
+- **Request tracing and a uniform error contract**: request IDs in headers, logs and error bodies (M2).
+- **Concurrent health checks** with per-check timeouts (`asyncio.gather` + `to_thread`) (M2).
 
 ### G.2 Architectural decisions & reasoning (talking points)
 Most likely to come up: D1 (no LangChain), D7 (hybrid + RRF), D13 (threshold gate), D14
@@ -626,9 +657,10 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 19 | What is HNSW, and what does ANN trade off? | After M9 |
 | 20 | Why stream responses, and why are citations sent last? | After M13 |
 | 21 | Why use both PostgreSQL and a vector database? Why not pgvector? | Draft below |
-| 22 | What is connection pooling? What changes with PgBouncer in transaction mode? | After M2 |
-| 23 | Your database scales to zero. What problems does that cause, and how did you handle them? | After M2 |
+| 22 | What is connection pooling? What changes with PgBouncer in transaction mode? | Draft below |
+| 23 | Your database scales to zero. What problems does that cause, and how did you handle them? | Draft below |
 | 24 | How do you run migrations safely against a managed database? | After M4 |
+| 25 | How do you make sure secrets never end up in logs or error messages? | Draft below |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 
@@ -646,6 +678,43 @@ collection from the chunk text in PostgreSQL, so Qdrant never holds anything I c
 pgvector would work at this scale and means one fewer service. I chose a dedicated vector database
 to learn how one works and to keep vector search independently scalable. The trade-off is keeping
 two stores consistent, which I handle with ordered writes and orphan filtering.
+
+**Q22 — Connection pooling and PgBouncer transaction mode.** _(draft)_ Opening a PostgreSQL
+connection is expensive: TCP, TLS and authentication, each a network round trip. From my laptop to
+Neon that's about 1.35 s, against ~0.2–0.3 s for a query. A pool keeps a few connections open and
+lends them to requests, so each request pays only for its queries. There are two pools in my setup.
+SQLAlchemy's pool, in my process, avoids the handshake. Neon's PgBouncer, in front of PostgreSQL,
+lets many client connections share a few real server connections. In *transaction* mode,
+PgBouncer may give me a different server connection for every transaction, so anything tied to a
+session breaks: `SET`, `LISTEN`, advisory locks, and prepared statements. That's why I disabled
+psycopg's automatic prepared statements. I also measured the real cost of a pooled query: 4 round
+trips (pre-ping, `BEGIN`, the query, `ROLLBACK`). That's what makes "keep sequential queries per
+request to two or fewer" a hard budget rather than a style preference.
+
+**Q23 — Scale-to-zero problems and how I handled them.** _(draft)_ Neon suspends the compute after
+5 idle minutes. Three problems follow. (1) Connections in my pool die silently, so the next query
+would fail with an SSL EOF error. `pool_pre_ping` tests a connection before use, and
+`pool_recycle=240` retires connections before the 5-minute mark. (2) The first query after a
+pause is slow, because the compute has to wake up; I measured ~4.5 s, including SQLAlchemy's
+one-time setup queries. I raised `connect_timeout` from 10 s (which timed out) to 30 s, and I warm
+the pool in the background at startup. (3) The tempting fix, a keep-alive ping, is the wrong one:
+it would stop Neon from ever suspending, and 0.25 CU × 730 h ≈ 182 CU-hours a month is more than
+the free plan's 100, so the database would be switched off for the rest of the month. The health
+endpoint reports database latency, so a cold start is visible instead of mysterious.
+
+**Q25 — Keeping secrets out of logs and errors.** _(draft)_ Secrets live only in `backend/.env`
+(git-ignored) and are loaded into `SecretStr` fields, which print as `**********`. I call
+`get_secret_value()` only where the real value is needed, such as creating the database engine.
+Three less obvious leaks I closed and tested:
+- pydantic's validation message echoes the bad input, so a mistyped `DATABASE_URL` would print
+  its password. I rebuild the message from field names only and raise with `from None` to drop
+  the original.
+- FastAPI's default 422 response echoes submitted values, which on a login form is the password.
+  My handler returns only the field name and the problem.
+- Driver error messages can contain host names and users. The health endpoint returns only the
+  exception type, and the full message goes to the server log.
+
+Each has a unit test asserting that a known fake secret does *not* appear in the output.
 
 ---
 
