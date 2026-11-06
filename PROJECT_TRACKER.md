@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-06** · Current milestone: **M1 — Services & Connectivity Verification (all checks PASS; first git commit pending your git identity)** · Next: **M2 — Backend Skeleton**
+> Last updated: **2026-11-06** · Current milestone: **M1 — Services & Connectivity Verification (all checks PASS; committed; push pending GitHub sign-in as piccolo3528)** · Next: **M2 — Backend Skeleton**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -223,11 +223,12 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Expected output:** Approved ARCHITECTURE.md, PROJECT_TRACKER.md, README.md.
 - **Dependencies:** none. **Testing:** review only.
 
-### M1 — Accounts, Services & Connectivity Verification · `IN PROGRESS` (all checks PASS; only the first commit remains)
+### M1 — Accounts, Services & Connectivity Verification · `IN PROGRESS` (all checks PASS; committed; only the first push remains)
 - **Objective:** Prove every external dependency works on *this* machine before any app code depends on it.
 - **Tasks:**
   - [x] `git init -b main`; verified that `.env`, `.venv` and `rag-documents/*` are ignored (staging dry run)
-  - [ ] First commit, **blocked on git identity** (no `user.name`/`user.email` configured; the user chooses which email to publish)
+  - [x] Commits `39690c9` (plan + environment scripts) and `2e335ab` (evaluation corpus + validator); repo-local identity with the GitHub noreply email (D26)
+  - [ ] **Push to `github.com/piccolo3528/enterprise_ai`, blocked:** this PC's Git Credential Manager is signed in as `jmohammadumair` (403). The repo is now configured to request `piccolo3528`; the user runs `git push -u origin main` once to sign in.
   - [x] Installed official Python 3.12.10 per-user via `winget` (the only previous 3.12 was a temporary interpreter from another tool session)
   - [x] Backend venv (`backend/.venv`); CPU-only `torch` 2.15.0+cpu; `pyproject.toml` with M1 deps; `pip install -e ".[dev]"`
   - [x] S6: moved `CORPUS_SPEC.md` to `backend/evaluation/`
@@ -583,7 +584,7 @@ evaluation schema. Proposed changes:
   section path) rather than mostly split them.
 
 ### F.10 Next recommended action
-1. Set your git identity (the name and email to publish on GitHub) → first commit closes M1.
+1. Run `git push -u origin main` once and sign in as **piccolo3528** in the browser window → closes M1.
 2. Optional decision: keep Neon in `us-east-1` or recreate it in an Asia region (L24).
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 4. Start **M2 — Backend Skeleton**.
