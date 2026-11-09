@@ -1,6 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **PROPOSED (v0.2, 2026-11-06)**. Nothing in this document is implemented yet.
+> Status: **v0.2 approved 2026-11-06; implemented through M6 (2026-11-09).** Parts labelled
+> "implemented in M2" … "M6" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
@@ -75,8 +76,8 @@ what*, the filesystem keeps the *originals*, and Gemini *writes* the answer.**
 |---|---|
 | Auth pages | Register, log in, log out. Session is an httpOnly cookie, so JavaScript never sees the token. |
 | Layout | Sidebar navigation, top bar, protected routes. |
-| Dashboard | Counts of KBs, documents, conversations, and recent activity. |
-| Knowledge bases | List, create, rename, delete. |
+| Dashboard *(built in M6)* | Totals of KBs, documents and conversations, and the 5 most recently changed KBs. All from the one KB-list request, which already carries per-KB counts. |
+| Knowledge bases *(built in M6)* | List (cards with counts), create, rename/describe, delete with confirmation; a detail page per KB (`/knowledge-bases/:id`) that M7 extends with documents. Dialogs are an accessible `Modal` (focus moves in, Tab stays inside, Escape closes, focus returns), never `window.confirm`. |
 | KB detail / documents | Drag-and-drop upload with progress, a document table with live processing status, delete. |
 | Chat | Streaming answers, inline citation markers, citation side panel, conversation list. |
 | Search | Hybrid search across a KB, showing matching passages without calling the LLM. |
@@ -146,6 +147,10 @@ models/ (SQLAlchemy), vector_store (Qdrant), llm client (Gemini), storage (disk)
 - **`GET /api/health`** always returns HTTP 200 with `status: ok | degraded` and a status, latency
   and short error per service, so the status page can show *which* part is down. It spends no
   Gemini quota (it only reports whether the key is configured).
+- **Our own validator messages** reach the client without pydantic's `"Value error, "` prefix
+  (M6), so a form shows *"Enter a name"*, not *"Value error, Enter a name"*.
+- **Malformed ids are 404, not 422** (M6): `/api/knowledge-bases/not-a-uuid` gets the same answer
+  as a missing or someone else's id, so every bad id looks alike.
 - **Configuration errors** stop startup with the list of variables to fix. Values are never printed,
   because pydantic's default message would echo a bad `DATABASE_URL`, password included.
 
@@ -362,6 +367,31 @@ Generation settings: `temperature ≈ 0.1–0.2` (factual Q&A favours determinis
 
 Known limits: sign-in rate limiting is planned for M16 (L26), and stateless tokens can't be
 revoked before they expire (L27).
+
+**Knowledge bases and tenant isolation (implemented in M6)** (`services/knowledge_bases.py`,
+`api/routes/knowledge_bases.py`):
+
+| Endpoint | SQL (one statement, always with `owner_id = :caller`) | Answer |
+|---|---|---|
+| `GET /api/knowledge-bases` | `SELECT kb.*, (SELECT count(*) FROM documents …), (SELECT count(*) FROM conversations …) WHERE owner_id = :me ORDER BY updated_at DESC` | `{"items": [...]}` |
+| `POST /api/knowledge-bases` | `INSERT … RETURNING` | 201; 409 if the name is taken (ignoring case), detected by the unique index |
+| `GET /api/knowledge-bases/{id}` | the list query `AND id = :id` | 200 or 404 |
+| `PATCH /api/knowledge-bases/{id}` | `UPDATE … WHERE id = :id AND owner_id = :me RETURNING kb.*, <counts>` | 200, 404 or 409; only the fields sent change; `description: null` clears it |
+| `DELETE /api/knowledge-bases/{id}` | `DELETE … WHERE id = :id AND owner_id = :me RETURNING id` (children cascade) | 204 or 404 |
+
+- **The ownership check *is* the query.** There's no "load it, check the owner, then change it":
+  that would cost an extra round trip and leave a gap between the check and the write. A row that
+  doesn't match `owner_id` simply isn't found, so someone else's KB and a non-existent one get
+  byte-identical 404s (verified across GET, PATCH and DELETE in a live test and in Chrome).
+- `user_id` is the first dependency of every route, so a signed-out caller always gets 401 before
+  the id is looked at.
+- The response never includes `owner_id`.
+- **Delete today** is one `DELETE`; PostgreSQL cascades to documents, chunks, conversations and
+  messages. When files (M7) and vectors (M9) exist it becomes the ordered delete of §4.11:
+  Qdrant points by `kb_id` → PostgreSQL rows → the upload folder.
+- **Input cleaning:** names are trimmed with inner whitespace collapsed (≤ 120 chars),
+  descriptions trimmed (≤ 1000, empty → none); control characters are rejected. NUL in
+  particular: PostgreSQL refuses it in text, so it would otherwise surface as a 500.
 
 ### 4.9 Upload security
 
@@ -609,7 +639,7 @@ erDiagram
     knowledge_bases {
         uuid id PK
         uuid owner_id FK
-        string name "unique per owner"
+        string name "unique per owner, ignoring case"
         text description
         timestamptz created_at
         timestamptz updated_at
@@ -682,6 +712,10 @@ IDs can double as Qdrant point IDs.
 - **Relationships are `lazy="raise"`:** an accidental hidden query is an error, not a silent round
   trip.
 - **Emails are stored lowercase**, enforced by a CHECK, so two accounts can't differ only by case.
+- **Knowledge base names are unique per owner ignoring case** (M6, migration `e0b6121b0338`): a
+  unique *index* on `(owner_id, lower(name))`, since a UNIQUE constraint can't hold an expression.
+  The display name keeps the user's casing. The migration creates the new index before dropping
+  the old constraint, so names are never unprotected.
 - **`search_vector` is a generated column**, loaded only on request (`deferred`), with a GIN index.
 - **No index repeats the leading column of a unique constraint**, because that constraint's index
   already serves those lookups. Reviewing the DDL removed 3 such duplicates.

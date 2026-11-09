@@ -7,6 +7,7 @@ import { ApiError } from "./api/client";
 import { renderApp, TEST_USER } from "./test/renderApp";
 
 vi.mock("./api/health", () => ({ getHealth: vi.fn(() => new Promise(() => {})) }));
+vi.mock("./api/knowledgeBases", () => ({ listKnowledgeBases: vi.fn(() => Promise.resolve([])) }));
 vi.mock("./api/auth", () => ({
   getMe: vi.fn(),
   login: vi.fn(),
@@ -64,7 +65,7 @@ describe("signing in", () => {
   it("sends an already signed-in user away from the sign-in page", async () => {
     getMe.mockResolvedValue(TEST_USER);
     renderApp("/login");
-    expect(await screen.findByRole("heading", { name: "System status" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
   it("explains when the server can't be reached instead of showing the sign-in page", async () => {
@@ -89,7 +90,7 @@ describe("creating an account", () => {
     register.mockResolvedValue(TEST_USER);
     renderApp("/register");
     await fillRegistration();
-    expect(await screen.findByRole("heading", { name: "System status" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(register).toHaveBeenCalledWith({
       email: "ana@example.com",
       password: "a-long-passphrase",

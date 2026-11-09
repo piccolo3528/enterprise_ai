@@ -5,6 +5,7 @@ import { getMe } from "./api/auth";
 import { renderApp, TEST_USER } from "./test/renderApp";
 
 vi.mock("./api/health", () => ({ getHealth: vi.fn(() => new Promise(() => {})) }));
+vi.mock("./api/knowledgeBases", () => ({ listKnowledgeBases: vi.fn(() => Promise.resolve([])) }));
 vi.mock("./api/auth", () => ({
   getMe: vi.fn(),
   login: vi.fn(),
@@ -18,9 +19,10 @@ beforeEach(() => {
 });
 
 describe("App routing and layout (signed in)", () => {
-  it("sends the home page to the status page", async () => {
+  it("sends the home page to the dashboard", async () => {
     renderApp("/");
-    expect(await screen.findByRole("heading", { name: "System status" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toHaveTextContent("Dashboard");
   });
 
   it("shows a not-found page for unknown routes", async () => {
@@ -29,7 +31,7 @@ describe("App routing and layout (signed in)", () => {
   });
 
   it("treats a not-yet-built page as not found, top bar included", async () => {
-    renderApp("/knowledge-bases");
+    renderApp("/chat");
     expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByRole("banner")).toHaveTextContent("Page not found");
   });
@@ -38,8 +40,8 @@ describe("App routing and layout (signed in)", () => {
     renderApp("/status");
     const nav = await screen.findByRole("navigation", { name: "Main" });
     const links = Array.from(nav.querySelectorAll("a")).map((a) => a.textContent);
-    expect(links).toEqual(["System status"]);
-    expect(nav).toHaveTextContent("Knowledge basesSoon");
+    expect(links).toEqual(["Dashboard", "Knowledge bases", "System status"]);
+    expect(nav).toHaveTextContent("ChatSoon");
   });
 
   it("shows who is signed in", async () => {

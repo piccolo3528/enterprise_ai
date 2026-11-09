@@ -4,9 +4,9 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M5 done: backend and frontend skeletons, the database schema on Neon
-> (Singapore), and accounts (register, sign in, sign out). Next: knowledge bases (M6) and document
-> upload (M7).**
+> **Project status: M0–M6 done: backend and frontend skeletons, the database schema on Neon
+> (Singapore), accounts (register, sign in, sign out), and knowledge bases (create, rename,
+> delete, strictly private per user) with a dashboard. Next: document upload (M7).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -307,8 +307,10 @@ npm run dev        # `npm start` does the same
 ```
 
 Open **http://localhost:5173**. The first time, click **Create an account** (name, email, and a
-password of at least 8 characters); after that, **Sign in**. You land on **System status**, a live
-check of Neon, Qdrant and the Gemini configuration with a Refresh button. Your session lasts
+password of at least 8 characters); after that, **Sign in**. You land on the **Dashboard**
+(totals and recently changed knowledge bases). **Knowledge bases** lets you create, rename and
+delete them; names are unique per user, ignoring case. **System status** is a live check of Neon,
+Qdrant and the Gemini configuration. Your session lasts
 `JWT_EXPIRE_MINUTES` (60 by default); **Sign out** is in the top bar. Vite forwards every `/api/...` request to the
 backend on port 8000, so the browser sees one website. That is why no API keys ever reach the
 frontend.
@@ -317,8 +319,10 @@ frontend.
   running on port 8000?"*
 - If one service is down, the page shows **Degraded** and marks which service failed.
 - Sidebar items marked **Soon** are pages that later milestones will build.
+- Opening another user's knowledge base (or a deleted one) shows *"Knowledge base not found"*:
+  the server answers 404 either way, so it never confirms that someone else's id exists.
 
-### 13. Run the tests *(backend verified in M2)*
+### 13. Run the tests *(verified; M6: 77 unit + 39 live backend, 50 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)

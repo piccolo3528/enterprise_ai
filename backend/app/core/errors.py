@@ -84,11 +84,20 @@ async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
     )
 
 
+def _readable(err: dict) -> str:
+    # Our own validators raise ValueError("Enter a name"); pydantic reports that as
+    # "Value error, Enter a name". The prefix means nothing to the person reading the form.
+    message = err["msg"]
+    if err["type"] == "value_error":
+        message = message.removeprefix("Value error, ")
+    return message
+
+
 async def _validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
     # FastAPI's default response echoes the submitted value ("input"). For a login form that
     # would be the password, so we return only where the problem is and what's wrong.
     details = [
-        {"field": ".".join(str(p) for p in err["loc"]), "message": err["msg"]}
+        {"field": ".".join(str(p) for p in err["loc"]), "message": _readable(err)}
         for err in exc.errors()
     ]
     return JSONResponse(

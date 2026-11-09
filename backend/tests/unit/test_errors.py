@@ -68,3 +68,12 @@ def test_validation_error_lists_fields_but_never_echoes_input(client):
     error = assert_error_shape(response, 422, "validation_error")
     assert {"field": "body.email", "message": "Field required"} in error["details"]
     assert "hunter2-secret" not in response.text
+
+
+def test_our_own_validator_messages_lose_pydantics_prefix(client):
+    # Found in the browser (M6): forms showed "Value error, Name contains characters...".
+    # Registration is invalid before any database work, so this needs no database.
+    body = {"email": "a@example.com", "password": "long-enough-pw", "full_name": "   "}
+    response = client.post("/api/auth/register", json=body)
+    error = assert_error_shape(response, 422, "validation_error")
+    assert error["details"] == [{"field": "body.full_name", "message": "Enter your name"}]

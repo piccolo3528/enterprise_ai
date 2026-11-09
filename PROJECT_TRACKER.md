@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-09** · Current milestone: **M5 — Authentication (COMPLETED)** · Next: **M6 — Knowledge Base Management**
+> Last updated: **2026-11-09** · Current milestone: **M6 — Knowledge Base Management (COMPLETED)** · Next: **M7 — Document Upload & Text Extraction**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -159,7 +159,7 @@ explain the concept back in your own words (or answer the related interview ques
 | 8 | ORM & migrations | Python classes ↔ tables; Alembic versions every schema change | COMPLETED (M4: 6 models, migration `5fb1c162ac1c`, up/down + `alembic check` tested) | ☐ | `app/models/`, `alembic/` |
 | 9 | Password hashing (Argon2id) | Slow, salted, memory-hard hashing, so stolen hashes resist cracking | COMPLETED (M5: ~108 ms/verify measured; rehash on login; no timing leak for unknown emails) | ☐ | `app/core/security.py`, `services/auth.py` |
 | 10 | JWT & cookie sessions | Signed, stateless token in an httpOnly cookie; XSS can't read it | COMPLETED (M5: proven in Chrome: `document.cookie` empty, yet `/me` → 200) | ☐ | `app/core/security.py`, `api/deps.py`, `routes/auth.py` |
-| 11 | Authorization / tenant isolation | Every query scoped to the owner; vector search filtered by an owned `kb_id` | NOT STARTED | ☐ | `api/deps.py`, `vector_store.py` |
+| 11 | Authorization / tenant isolation | Every query scoped to the owner; vector search filtered by an owned `kb_id` | IN PROGRESS (M6: SQL side done: owner in every statement, identical 404s, cross-user test matrix; Qdrant filter in M9) | ☐ | `services/knowledge_bases.py`, `api/deps.py`, `vector_store.py` |
 | 12 | Secure file upload | Allow-list, magic bytes, size limits, server-generated paths | NOT STARTED | ☐ | `routes/documents.py`, `storage.py` |
 | 13 | Text extraction | Getting clean text + page structure out of PDF/DOCX/TXT | NOT STARTED | ☐ | `ingestion/extractors.py` |
 | 14 | Text cleaning | Normalizing whitespace and Unicode, de-hyphenation, removing noise | NOT STARTED | ☐ | `ingestion/cleaning.py` |
@@ -208,6 +208,10 @@ explain the concept back in your own words (or answer the related interview ques
 | 57 | Dev proxy & same origin | The browser talks to one origin; Vite forwards `/api` to FastAPI, so no CORS and no secrets in the browser | COMPLETED (M3) | ☐ | `frontend/vite.config.js` |
 | 58 | Client-side error model & request cancellation | Every failure → one `ApiError`; `AbortController` stops stale responses overwriting new ones | COMPLETED (M3) | ☐ | `src/api/client.js`, `pages/SystemStatus.jsx` |
 | 59 | Component testing | Render components in a simulated DOM and assert what a user sees (Testing Library), with the API mocked | COMPLETED (M3) | ☐ | `src/**/*.test.jsx` |
+| 60 | Check-and-act in one statement (no TOCTOU) | Put the ownership condition inside the `UPDATE`/`DELETE` itself instead of "read, check, then write": one round trip, and nothing can change in between | COMPLETED (M6) | ☐ | `services/knowledge_bases.py` |
+| 61 | Expression (functional) unique index | `UNIQUE (owner_id, lower(name))`: uniqueness on a computed value, which a plain UNIQUE constraint can't express | COMPLETED (M6: migration `e0b6121b0338`) | ☐ | `models/knowledge_base.py`, `alembic/versions/` |
+| 62 | Partial updates (PATCH semantics) | Only fields actually sent change; "absent" ≠ "null" (`model_fields_set`) | COMPLETED (M6) | ☐ | `schemas/knowledge_base.py` |
+| 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
 ---
 
@@ -319,14 +323,19 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M3, M4.
 - **Testing:** 13 backend unit (hashing, tokens: expired, wrong secret, tampered payload, `alg: none`, missing `exp`, malformed) + 12 API integration tests on the Neon test branch + 14 new frontend tests; full manual flow in Chrome.
 
-### M6 — Knowledge Base Management · `NOT STARTED`
+### M6 — Knowledge Base Management · `COMPLETED` (2026-11-09)
 - **Objective:** CRUD for knowledge bases with strict ownership.
 - **Tasks:**
-  - [ ] Service + routes: list/create/get/update/delete; `get_owned_kb` (404 for others)
-  - [ ] Frontend: KB list (empty state), create modal, rename, delete with confirmation; dashboard counts
-- **Expected output:** users manage multiple KBs; a second user can't see or touch them.
+  - [x] `GET/POST /api/knowledge-bases`, `GET/PATCH/DELETE /api/knowledge-bases/{id}`; every statement carries `owner_id = :caller` (D36): someone else's KB and a missing one get identical 404s; malformed ids → 404; `user_id` resolved first (401 before anything else)
+  - [x] Counts (`document_count`, `conversation_count`) as correlated subqueries in the same statement, including `UPDATE … RETURNING` (D37)
+  - [x] Case-insensitive unique names: unique index on `(owner_id, lower(name))`, migration `e0b6121b0338` (new index created before the old constraint is dropped), applied to `production` and `test` (D35)
+  - [x] Input cleaning: trim + collapse whitespace, length limits, control characters (incl. NUL, which would have been a 500) rejected; PATCH changes only the fields sent
+  - [x] Frontend: Dashboard (totals + 5 recent KBs, from the one list call, D38), Knowledge bases page (cards, empty/loading/error states, create/edit/delete dialogs, deletion notice), KB detail page (`/knowledge-bases/:id`, "not found" state), accessible `Modal` + `Textarea` (D39); `/` now opens the dashboard
+  - [x] Bug found in Chrome and fixed: pydantic's `"Value error, "` prefix reached the forms (also on M5's "Enter your name"); stripped centrally in `core/errors.py` + test
+  - [ ] Typed-name confirmation for deleting a KB that has documents: revisit in M7 (D39)
+- **Expected output:** users manage multiple KBs; a second user can't see or touch them. **Achieved**, verified by tests and live in Chrome (§F.8).
 - **Dependencies:** M5.
-- **Testing:** integration incl. a **cross-user access test**; validation (empty/duplicate names).
+- **Testing:** 25 unit + 12 live API tests (incl. the cross-user matrix) + 17 frontend tests; full manual flow with two accounts in Chrome.
 
 ### M7 — Document Upload & Text Extraction · `NOT STARTED`
 - **Objective:** Upload PDF/DOCX/TXT, extract + clean text with page/section structure, track status.
@@ -466,13 +475,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - Database schema (M4): 6 tables on Neon Singapore, versioned by Alembic; constraints and cascades
   enforced by PostgreSQL; autocommit read sessions; transaction-per-test fixtures on the `test` branch.
 - Authentication (M5): register, sign in, sign out, protected pages; Argon2id + httpOnly JWT cookie.
-- Next user features: knowledge bases (M6) and document upload (M7).
+- Knowledge bases (M6): create, list, view, rename, delete, private per user (cross-user access is
+  a 404 indistinguishable from "missing"); dashboard with totals.
+- Next user feature: document upload (M7).
 
 ### F.2 In progress
-- Nothing. M6 (knowledge base management) is next.
+- Nothing. M7 (document upload & text extraction) is next.
 
 ### F.3 Remaining functionality
-- Everything in M6–M17 (M18 optional).
+- Everything in M7–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -508,6 +519,8 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~200–290 ms per round trip** (varies by day), ~1.35 s per new DB connection, ~245 ms per Qdrant call. **M2: one pooled query = 4 round trips** (pre-ping, `BEGIN`, query, `ROLLBACK`) ≈ 0.8–1.05 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. **Resolved in M4 (D32 + D27):** Neon moved to Singapore (54–65 ms per trip) and reads use autocommit sessions: a typical read takes 109 ms instead of ~815 ms. |
 | L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored. **Closed (M4): the app uses a new Neon project, and the old US project was deleted by the user (2026-11-09).** |
 | L26 | **No sign-in rate limiting yet** | Online password guessing is slowed only by Argon2 (~0.1 s per try) | Planned with the per-user limiter (`core/rate_limit.py`, M16): limit failed sign-ins per email and per IP |
+| L28 | No cap on knowledge bases per user and no paging of the KB list; counts are computed per row on every list | Fine for tens of KBs; a user with thousands would get a slow, large list | Per-user limits with the rate limiter (M16); paging fields can be added to `{"items": …}` without breaking clients; denormalised counters if counting ever shows up in timings |
+| L29 | **Sessions end silently after `JWT_EXPIRE_MINUTES` (60)**, with no sliding refresh (observed in M6's Chrome test: a reload sent the user to sign-in mid-task) | Whatever is open in a form is lost when the session ends | After signing in, the user returns to the page they were on; a refresh token / sliding session is an M16 option (ties in with L27) |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -545,6 +558,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D32 | 2026-11-09 | **Move Neon and Qdrant to Asia**: Neon `aws-ap-southeast-1` (Singapore; Neon's only Asia regions are Singapore and Sydney, and a region can't be changed after creation), Qdrant the nearest Asia region offered | Every round trip from India gets several times shorter; both stores still empty, so the move is cheap; a new project also replaces the exposed credentials (L25) | Keep us-east-1 | **Done (M4)**: Neon Singapore; Qdrant free tier has no AWS Asia region, so GCP Sydney (`australia-southeast1`) |
 | D33 | 2026-11-09 | Schema conventions: UUIDs generated in Python; CHECK constraints instead of ENUM types; constraint naming convention; `ON DELETE CASCADE` + `passive_deletes`; relationships `lazy="raise"`; emails stored lowercase (CHECK); no index duplicating a unique constraint's leading column | Fewer round trips (no read-back of ids, no lazy loads, no child loading on delete); migration-friendly | DB-generated ids, ENUMs, default lazy loading | Accepted (M4) |
 | D34 | 2026-11-09 | Auth details: password 8–128 chars, no composition rules (NIST SP 800-63B); register signs the user in; cookie `Path=/api`; `get_current_user_id` trusts the signed token (no DB read), `get_current_user` reads once; auth routes are sync `def` (hashing runs in a worker thread) | Usability + security; fewer round trips; the event loop is never blocked by ~0.1 s of hashing | Composition rules; token in localStorage; DB lookup on every request | Accepted (M5) |
+| D35 | 2026-11-09 | **KB names unique per owner ignoring case**: unique index on `(owner_id, lower(name))` replaces `UNIQUE (owner_id, name)`; display keeps the user's casing; names trimmed and inner whitespace collapsed | "HR" and "hr" side by side confuses users; the database (not a pre-check query) guarantees it, race-free | Case-sensitive constraint (M4); `citext` column (extension + type change); app-side check (racy) | Accepted (M6) |
+| D36 | 2026-11-09 | **Authorization inside the statement**: every KB query/UPDATE/DELETE includes `owner_id = :caller`; no separate ownership read; malformed ids are 404 too; `user_id` is the first dependency | One round trip instead of two; no time-of-check/time-of-use gap; byte-identical 404s never reveal that another user's id exists | `get_owned_kb` loaded first, then act (2 trips, TOCTOU gap); 403 for others' KBs (leaks existence) | Accepted (M6) |
+| D37 | 2026-11-09 | KB responses always carry `document_count` and `conversation_count`, as correlated subqueries in the same statement, including `UPDATE … RETURNING` | The UI needs the counts everywhere; no extra query; both are index lookups | Separate count queries; denormalised counter columns (premature) | Accepted (M6) |
+| D38 | 2026-11-09 | Dashboard totals are summed from the KB list response; no `/api/dashboard` endpoint yet | One request already has every number; no duplicate SQL | A stats endpoint (revisit if the dashboard needs data the list lacks, e.g. recent questions in M13) | Accepted (M6) |
+| D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
 | D30 | 2026-11-06 | Warm Neon + Qdrant in the background at startup; no periodic keep-alive | Server is ready immediately; the first user request doesn't pay ~4.5 s. A keep-alive would stop Neon suspending (≈182 CU-h/month > 100 free) | Blocking warm-up; keep-alive ping | Accepted (M2) |
@@ -603,6 +621,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-09 | M5 | `pytest -m live tests/integration/test_auth_api.py` (Neon test branch) | ✔ 12 passed | register (lowercased email, no hash in response, argon2id stored), cookie flags (HttpOnly, Secure, SameSite=strict, Path=/api, Max-Age=3600), duplicate email any case → 409, login, wrong password = unknown email (same 401 message, no cookie), `/me` without session 401, logout (Max-Age=0, then 401), tampered / expired / deleted-user tokens 401, 422 without echoing the password, `text/plain` login refused |
 | 2026-11-09 | M5 | `npm test` | ✔ 33 passed | +14: redirect to sign-in, sign in → back to the requested page, wrong password message, show/hide password, signed-in user skips /login, backend down ≠ signed out, register, duplicate email, server field errors, sign out; 401 interceptor (expired session vs auth probes); `fieldErrors` |
 | 2026-11-09 | M5 | Manual in Chrome (user's running servers) | ✔ | `/status` signed out → `/login`; register → System status with name in top bar, email stored lowercase; **`document.cookie` empty while `/api/auth/me` → 200** (httpOnly works; Secure cookie accepted on http://localhost); reload keeps the session; sign out → `/login`, `/me` 401; wrong password → "Incorrect email or password." + reference; right password → back in. Test account deleted afterwards (0 users) |
+| 2026-11-09 | M6 | Migration `e0b6121b0338` (autogenerated, then reviewed: order swapped so the new index exists before the old constraint is dropped) | ✔ | Applied to `production` and `test`; `alembic check`: no differences; the downgrade→upgrade round trip passes in the live suite |
+| 2026-11-09 | M6 | `pytest` (unit) | ✔ 77 passed | +25: name cleaning (trim/collapse, blank, control chars incl. NUL, length after cleaning, Unicode), description rules, PATCH semantics (only sent fields, null clears, name can't be null, empty patch rejected), index DDL, every endpoint 401 without a session (incl. a malformed id), malformed ids → 404, validator messages without pydantic's prefix |
+| 2026-11-09 | M6 | `pytest -m live` (Neon test branch) | ✔ 39 passed | +12 KB API: create/read back (no `owner_id`), list order + per-KB counts, duplicate name in any case → 409 (other users may reuse it), invalid input 422 never 500, rename/describe (counts from `UPDATE … RETURNING`, `updated_at` moves), case-only rename of your own KB allowed, rename onto another of your names → 409 + rolled back, empty/`null`-name PATCH 422, delete cascades to documents/conversations/messages but not the owner, **cross-user matrix** (GET/PATCH/DELETE: same status and body as a random id; Bob's list empty; Alice's KB unchanged) |
+| 2026-11-09 | M6 | Live-test failures on the first runs | ✔ explained | (1) all 401: a cookie set with `domain="testserver"` is never sent (Python's cookiejar treats a dotless host as `testserver.local`); (2) Bob's failed DELETE called `db.rollback()`, which in the savepoint fixture also rolled back Alice's uncommitted test document. Production unaffected (one session per request); removed the needless rollback and made test setup commit (= release its savepoint) |
+| 2026-11-09 | M6 | `npm test` | ✔ 50 passed | +17: list with counts + links, empty state, load error + reference + retry, create → detail page, focus moves into the dialog, 409 shown at the name field, blank name not sent, Escape closes + focus returns + fresh form, rename in place + re-sorted, delete with Cancel focused by default, already-deleted treated as deleted, delete failure keeps the dialog, detail page counts, not-found page, delete from detail → list notice, edit description, dashboard totals and empty state. One flaky run traced to two `role="status"` elements (spinner + notice) → the test now waits for the list |
+| 2026-11-09 | M6 | `npm run build` | ✔ | 364 kB JS (117 kB gzipped), 27 kB CSS |
+| 2026-11-09 | M6 | Manual in Chrome (user's running servers), two accounts | ✔ | Register → empty dashboard; create from the dashboard (`"  HR   Policies "` saved as `HR Policies`) → detail page; focus starts in Name; `hr policies` → 409 under the field; rename from the card in place (focus back on Edit); `document.cookie` empty. **As Bob:** Alice's KB URL → "Knowledge base not found"; GET/PATCH/DELETE on her id return the same status + body as a random id; his list empty; he may create his own "HR Policies"; NUL byte → 422. **As Alice again:** KB unchanged; delete from the detail page → list with notice; after a reload the notice isn't repeated; dashboard totals right; no console errors. List call through the proxy: **123–193 ms** (median ~140). Test accounts deleted afterwards (cascade removed their KBs) |
+| 2026-11-09 | M6 | Found in Chrome | ✔ fixed | Field messages read "Value error, Name contains…" (pydantic's prefix for custom validators; M5's "Enter your name" too) → stripped in `core/errors.py`, unit test added, confirmed on the running server |
+| 2026-11-09 | M6 | Observed in Chrome: signed out mid-test | ℹ explained | `/api/auth/me` said "Please sign in" (no cookie sent, not a bad token). Database timestamps put the last sign-in about an hour earlier, so the cookie's `Max-Age=3600` had passed and the browser dropped it; the app correctly went to sign-in and back to the same page afterwards. Recorded as L29 |
 | 2026-11-09 | M4 | D27 probe (scratch script) | ✔ | Warm round trip 65 ms; read via normal session **221 ms** (BEGIN+SELECT+ROLLBACK+pre-ping) vs read session **109 ms** (pre-ping+SELECT): kept. vs M2 us-east-1 ≈ 815 ms → **~7.5× faster** |
 
 ### F.9 Environment facts
@@ -626,6 +653,7 @@ vitest 5.1.0, jsdom 31.0.0, @testing-library/react 16.3.3, jest-dom 7.0.1, user-
 AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by the user.)
 **Added in M4:** alembic 1.20.1.
 **Added in M5:** argon2-cffi 25.1.0, PyJWT 2.15.1, email-validator 2.3.0.
+**M6:** no new dependencies (backend or frontend). Neon `production` and `test` are at migration `e0b6121b0338`.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -689,9 +717,16 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   algorithm; httpOnly is provable: `document.cookie` was empty while `/me` returned 200; JSON-only
   endpoints resist CSRF (a `text/plain` login was refused); a frontend must tell "signed out" apart
   from "server unreachable"; let the route guard do the post-login redirect (avoids a race).
+- **M6:** put the ownership check *in* the `UPDATE`/`DELETE` (one trip, no TOCTOU, identical
+  404s); a case-insensitive rule needs an expression index, and a migration should add the new
+  guard before dropping the old one; correlated subqueries even work in `RETURNING`; NUL bytes turn
+  into 500s unless validated; check what tests *actually send* (a cookie scoped to `testserver`
+  was never sent; a service's `rollback()` undid the test's own setup); browser testing again found
+  what tests didn't (pydantic's "Value error," prefix); two `role="status"` elements made a test
+  flaky; a sudden sign-out was the 60-minute session ending: check timestamps before suspecting code.
 
 ### F.10 Next recommended action
-1. Start **M6 — Knowledge Base Management** (create/list/rename/delete, strict ownership, 404 for others' KBs).
+1. Start **M7 — Document Upload & Text Extraction** (upload validation, storage, extractors incl. Markdown front matter, status lifecycle, upload UI).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 
@@ -711,6 +746,7 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
 - **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
 - **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
 - **Authentication**: Argon2id with no account-enumeration leaks, JWT in an httpOnly/Secure/SameSite=Strict cookie, route guards, session-expiry handling (M5).
+- **Multi-tenant authorization**: ownership in every SQL statement, identical 404s for "missing" and "not yours", a cross-user test matrix; case-insensitive uniqueness via an expression index; PATCH semantics; accessible dialogs (M6).
 
 ### G.2 Architectural decisions & reasoning (talking points)
 Most likely to come up: D1 (no LangChain), D7 (hybrid + RRF), D13 (threshold gate), D14
@@ -756,6 +792,12 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 33 | Where do you keep the session token, and why not localStorage? | In Notion (M5) |
 | 34 | How do you prevent account enumeration and CSRF? | In Notion (M5) |
 | 35 | What are the downsides of JWT sessions? | In Notion (M5) |
+| 36 | How do you stop one user reading or changing another user's data (IDOR)? Why 404 and not 403? | In Notion (M6) |
+| 37 | What is a time-of-check/time-of-use bug, and how did you avoid it? | In Notion (M6) |
+| 38 | How do you make a name unique per user, ignoring case? | In Notion (M6) |
+| 39 | PATCH vs PUT: how do you tell "not sent" from "set to null"? | In Notion (M6) |
+| 40 | How did you test tenant isolation? | In Notion (M6) |
+| 41 | Two retrieved passages conflict. Which one wins? | In Notion (📐 designed, not built: version-aware retrieval S4, M14) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

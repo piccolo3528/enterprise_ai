@@ -79,8 +79,8 @@ def test_knowledge_base_names_are_unique_per_owner(db):
     alice, bob = make_user(db), make_user(db)
     make_kb(db, alice, "HR")
     make_kb(db, bob, "HR")  # another owner may reuse the name
-    db.add(KnowledgeBase(owner_id=alice.id, name="HR"))
-    expect_rejected(db, "uq_knowledge_bases_owner_id_name")
+    db.add(KnowledgeBase(owner_id=alice.id, name="hr"))  # same name, different case (M6)
+    expect_rejected(db, "uq_knowledge_bases_owner_id_lower_name")
 
 
 def test_document_status_must_be_known(db):

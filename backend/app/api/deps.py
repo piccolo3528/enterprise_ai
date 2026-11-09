@@ -16,7 +16,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.errors import UnauthorizedError
+from app.core.errors import NotFoundError, UnauthorizedError
 from app.core.security import SESSION_COOKIE, InvalidTokenError, decode_access_token
 from app.models import User
 
@@ -87,3 +87,15 @@ def get_current_user(user_id: CurrentUserId, db: ReadDbSession) -> User:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def get_kb_id(kb_id: str) -> uuid.UUID:
+    """The `{kb_id}` path parameter. A malformed id is "not found" (404), the same answer as
+    someone else's id, instead of FastAPI's 422, so every bad id looks alike."""
+    try:
+        return uuid.UUID(kb_id)
+    except ValueError:
+        raise NotFoundError("Knowledge base not found.") from None
+
+
+KbId = Annotated[uuid.UUID, Depends(get_kb_id)]
