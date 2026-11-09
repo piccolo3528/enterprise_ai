@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-09** · Current milestone: **M4 — Database Schema & Migrations (COMPLETED)** · Next: **M5 — Authentication**
+> Last updated: **2026-11-09** · Current milestone: **M5 — Authentication (COMPLETED)** · Next: **M6 — Knowledge Base Management**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -157,8 +157,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 6 | Connection pooling (client + PgBouncer) | Reusing connections; transaction-mode rules; stale connections after scale-to-zero | COMPLETED (M4: autocommit read sessions measured, 221 → 109 ms) | ☐ | `app/db/session.py` |
 | 7 | Database branching | Copy-on-write DB copies for safe testing | COMPLETED (M4: `test` branch, rolled-back transaction per test, dev-host guard) | ☐ | `tests/integration/conftest.py` |
 | 8 | ORM & migrations | Python classes ↔ tables; Alembic versions every schema change | COMPLETED (M4: 6 models, migration `5fb1c162ac1c`, up/down + `alembic check` tested) | ☐ | `app/models/`, `alembic/` |
-| 9 | Password hashing (Argon2id) | Slow, salted, memory-hard hashing, so stolen hashes resist cracking | NOT STARTED | ☐ | `app/core/security.py` |
-| 10 | JWT & cookie sessions | Signed, stateless token in an httpOnly cookie; XSS can't read it | NOT STARTED | ☐ | `app/core/security.py`, `api/deps.py` |
+| 9 | Password hashing (Argon2id) | Slow, salted, memory-hard hashing, so stolen hashes resist cracking | COMPLETED (M5: ~108 ms/verify measured; rehash on login; no timing leak for unknown emails) | ☐ | `app/core/security.py`, `services/auth.py` |
+| 10 | JWT & cookie sessions | Signed, stateless token in an httpOnly cookie; XSS can't read it | COMPLETED (M5: proven in Chrome: `document.cookie` empty, yet `/me` → 200) | ☐ | `app/core/security.py`, `api/deps.py`, `routes/auth.py` |
 | 11 | Authorization / tenant isolation | Every query scoped to the owner; vector search filtered by an owned `kb_id` | NOT STARTED | ☐ | `api/deps.py`, `vector_store.py` |
 | 12 | Secure file upload | Allow-list, magic bytes, size limits, server-generated paths | NOT STARTED | ☐ | `routes/documents.py`, `storage.py` |
 | 13 | Text extraction | Getting clean text + page structure out of PDF/DOCX/TXT | NOT STARTED | ☐ | `ingestion/extractors.py` |
@@ -307,15 +307,17 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M2.
 - **Testing:** migration up/down; model constraint tests (unique email, cascades) on the `test` branch.
 
-### M5 — Authentication · `NOT STARTED`
+### M5 — Authentication · `COMPLETED` (2026-11-09)
 - **Objective:** Register, log in, log out; protected routes end to end.
 - **Tasks:**
-  - [ ] Argon2id hashing, JWT issue/verify, httpOnly SameSite=Strict cookie
-  - [ ] `POST /api/auth/register`, `/login`, `/logout`, `GET /api/auth/me`; `get_current_user`
-  - [ ] Frontend: AuthContext, Login/Register pages, ProtectedRoute, logout
-- **Expected output:** register → log in → dashboard shell → log out → back to login.
+  - [x] Argon2id hashing (argon2-cffi defaults: 64 MiB, t=3, p=4; measured ~108 ms/verify), rehash-on-login, dummy-hash check for unknown emails (no timing leak)
+  - [x] JWT (HS256 only, `sub`/`iat`/`exp` required) in a cookie: `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api`, `Max-Age` = `JWT_EXPIRE_MINUTES`; new setting `COOKIE_SECURE` (default true; browsers accept Secure on localhost)
+  - [x] `POST /api/auth/register` (201, signs in), `/login`, `/logout` (204), `GET /api/auth/me`; duplicate email → 409 via the unique constraint (no pre-check query); one message for wrong password and unknown email
+  - [x] `get_current_user_id` (no DB query: the signature proves the id) and `get_current_user` (one read); `UnauthorizedError` (401)
+  - [x] Frontend: `AuthContext` (loading / authenticated / anonymous / error, so "backend down" isn't shown as "signed out"), `ProtectedRoute` + `PublicOnlyRoute` (return to the page first asked for), Login and Register pages (field errors from the server, show/hide password), name + Sign out in the top bar, expired-session handler on every other API call
+- **Expected output:** register → log in → dashboard shell → log out → back to login. **Achieved** in Chrome against the real backend (§F.8).
 - **Dependencies:** M3, M4.
-- **Testing:** unit (hashing, JWT expiry/tamper); integration (duplicate email 409, wrong password 401, no cookie 401); manual UI flow.
+- **Testing:** 13 backend unit (hashing, tokens: expired, wrong secret, tampered payload, `alg: none`, missing `exp`, malformed) + 12 API integration tests on the Neon test branch + 14 new frontend tests; full manual flow in Chrome.
 
 ### M6 — Knowledge Base Management · `NOT STARTED`
 - **Objective:** CRUD for knowledge bases with strict ownership.
@@ -463,13 +465,14 @@ Each milestone is small enough to finish, test and understand in one or two sess
   Vite proxy, uniform `ApiError` handling.
 - Database schema (M4): 6 tables on Neon Singapore, versioned by Alembic; constraints and cascades
   enforced by PostgreSQL; autocommit read sessions; transaction-per-test fixtures on the `test` branch.
-- No user features yet (auth, knowledge bases and documents start in M5–M7).
+- Authentication (M5): register, sign in, sign out, protected pages; Argon2id + httpOnly JWT cookie.
+- Next user features: knowledge bases (M6) and document upload (M7).
 
 ### F.2 In progress
-- Nothing. M5 (authentication) is next.
+- Nothing. M6 (knowledge base management) is next.
 
 ### F.3 Remaining functionality
-- Everything in M5–M17 (M18 optional).
+- Everything in M6–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -504,6 +507,8 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L23 | Neon's docs don't explicitly confirm built-in FTS | Hybrid search design depends on it | Scripted check in M1 before M4 |
 | L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~200–290 ms per round trip** (varies by day), ~1.35 s per new DB connection, ~245 ms per Qdrant call. **M2: one pooled query = 4 round trips** (pre-ping, `BEGIN`, query, `ROLLBACK`) ≈ 0.8–1.05 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. **Resolved in M4 (D32 + D27):** Neon moved to Singapore (54–65 ms per trip) and reads use autocommit sessions: a typical read takes 109 ms instead of ~815 ms. |
 | L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored. **Closed (M4): the app uses a new Neon project, and the old US project was deleted by the user (2026-11-09).** |
+| L26 | **No sign-in rate limiting yet** | Online password guessing is slowed only by Argon2 (~0.1 s per try) | Planned with the per-user limiter (`core/rate_limit.py`, M16): limit failed sign-ins per email and per IP |
+| L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
 
@@ -539,6 +544,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D27 | 2026-11-06 | **Open, decide in M4:** reduce the 4 round trips per pooled query. Options: (a) autocommit for read-only requests (−2 trips); (b) drop `pool_pre_ping`, rely on `pool_recycle=240` + one retry on a dropped connection (−1 trip); (c) move Neon/Qdrant to an Asia region (cheaper trips, L24) | Measured in M2: pre-ping, `BEGIN`, query and `ROLLBACK` each cost a full round trip (815 ms; 611 ms without pre-ping) | Keep as is (simplest, slowest) | **Decided 2026-11-09 (user): option (a)**, autocommit read sessions (`ReadDbSession`); writes keep full transactions. Implemented in M4; keep only if the measurement confirms |
 | D32 | 2026-11-09 | **Move Neon and Qdrant to Asia**: Neon `aws-ap-southeast-1` (Singapore; Neon's only Asia regions are Singapore and Sydney, and a region can't be changed after creation), Qdrant the nearest Asia region offered | Every round trip from India gets several times shorter; both stores still empty, so the move is cheap; a new project also replaces the exposed credentials (L25) | Keep us-east-1 | **Done (M4)**: Neon Singapore; Qdrant free tier has no AWS Asia region, so GCP Sydney (`australia-southeast1`) |
 | D33 | 2026-11-09 | Schema conventions: UUIDs generated in Python; CHECK constraints instead of ENUM types; constraint naming convention; `ON DELETE CASCADE` + `passive_deletes`; relationships `lazy="raise"`; emails stored lowercase (CHECK); no index duplicating a unique constraint's leading column | Fewer round trips (no read-back of ids, no lazy loads, no child loading on delete); migration-friendly | DB-generated ids, ENUMs, default lazy loading | Accepted (M4) |
+| D34 | 2026-11-09 | Auth details: password 8–128 chars, no composition rules (NIST SP 800-63B); register signs the user in; cookie `Path=/api`; `get_current_user_id` trusts the signed token (no DB read), `get_current_user` reads once; auth routes are sync `def` (hashing runs in a worker thread) | Usability + security; fewer round trips; the event loop is never blocked by ~0.1 s of hashing | Composition rules; token in localStorage; DB lookup on every request | Accepted (M5) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
 | D30 | 2026-11-06 | Warm Neon + Qdrant in the background at startup; no periodic keep-alive | Server is ready immediately; the first user request doesn't pay ~4.5 s. A keep-alive would stop Neon suspending (≈182 CU-h/month > 100 free) | Blocking warm-up; keep-alive ping | Accepted (M2) |
@@ -592,6 +598,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-09 | M4 | `pytest -m live` (Neon `test` branch) | ✔ 15 passed | 3 service + 2 migration (downgrade→upgrade round trip, models ↔ migration in sync) + 10 schema (server defaults via RETURNING, unique/lowercase email, KB name per owner, status CHECK, duplicate sha256 per KB, cascade delete user → everything, stemmed FTS on generated column, GIN index, autocommit read session). Fixed: Alembic `path_separator` deprecation warning |
 | 2026-11-09 | M4 | User checks after M4 | ✔ | Old US Neon project + Qdrant cluster **deleted** (L25 closed); **new Groq key** → check PASS (11 models); **phone layout** confirmed by the user (M3 open item closed) |
 | 2026-11-09 | M4 | Status page showed Qdrant "Unavailable · ResponseHandlingException" | ✔ explained | Qdrant fine with the current `.env` (633 ms). The running backend had started at 15:51, `.env` changed at 16:46: settings are read once at startup, so it still used the deleted US cluster's URL. Fix: restart; docs now use `uvicorn ... --reload --reload-include .env` |
+| 2026-11-09 | M5 | Argon2id probe | ℹ | argon2-cffi 25.1 defaults (Argon2id, 64 MiB, t=3, p=4): **~108 ms per verify** on this laptop: kept |
+| 2026-11-09 | M5 | `pytest` (unit) | ✔ 52 passed | +13 security: argon2id format, unique salts, right/wrong password, unknown user (dummy hash), garbage hash, rehash detection, token round trip, expired, wrong secret, tampered payload, `alg: none`, missing `exp`, malformed |
+| 2026-11-09 | M5 | `pytest -m live tests/integration/test_auth_api.py` (Neon test branch) | ✔ 12 passed | register (lowercased email, no hash in response, argon2id stored), cookie flags (HttpOnly, Secure, SameSite=strict, Path=/api, Max-Age=3600), duplicate email any case → 409, login, wrong password = unknown email (same 401 message, no cookie), `/me` without session 401, logout (Max-Age=0, then 401), tampered / expired / deleted-user tokens 401, 422 without echoing the password, `text/plain` login refused |
+| 2026-11-09 | M5 | `npm test` | ✔ 33 passed | +14: redirect to sign-in, sign in → back to the requested page, wrong password message, show/hide password, signed-in user skips /login, backend down ≠ signed out, register, duplicate email, server field errors, sign out; 401 interceptor (expired session vs auth probes); `fieldErrors` |
+| 2026-11-09 | M5 | Manual in Chrome (user's running servers) | ✔ | `/status` signed out → `/login`; register → System status with name in top bar, email stored lowercase; **`document.cookie` empty while `/api/auth/me` → 200** (httpOnly works; Secure cookie accepted on http://localhost); reload keeps the session; sign out → `/login`, `/me` 401; wrong password → "Incorrect email or password." + reference; right password → back in. Test account deleted afterwards (0 users) |
 | 2026-11-09 | M4 | D27 probe (scratch script) | ✔ | Warm round trip 65 ms; read via normal session **221 ms** (BEGIN+SELECT+ROLLBACK+pre-ping) vs read session **109 ms** (pre-ping+SELECT): kept. vs M2 us-east-1 ≈ 815 ms → **~7.5× faster** |
 
 ### F.9 Environment facts
@@ -614,6 +625,7 @@ vitest 5.1.0, jsdom 31.0.0, @testing-library/react 16.3.3, jest-dom 7.0.1, user-
 **Qdrant Cloud cluster (since 2026-11-09):** free tier, GCP `australia-southeast1` (Sydney). The free
 AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by the user.)
 **Added in M4:** alembic 1.20.1.
+**Added in M5:** argon2-cffi 25.1.0, PyJWT 2.15.1, email-validator 2.3.0.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -672,9 +684,14 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   removed); CHECK constraints over ENUMs; ids generated in Python save a round trip; `lazy="raise"`
   turns hidden queries into errors; never import from `conftest.py` (two conftests clashed); a
   validator that checks only one of three similar settings is a trap (found via the test URL).
+- **M5:** make wrong password and unknown email indistinguishable, in message *and* timing (dummy
+  hash); let the unique constraint detect duplicates (race-free, one trip less); pin the JWT
+  algorithm; httpOnly is provable: `document.cookie` was empty while `/me` returned 200; JSON-only
+  endpoints resist CSRF (a `text/plain` login was refused); a frontend must tell "signed out" apart
+  from "server unreachable"; let the route guard do the post-login redirect (avoids a race).
 
 ### F.10 Next recommended action
-1. Start **M5 — Authentication** (Argon2id passwords, JWT in an httpOnly cookie, register/login/logout, protected routes).
+1. Start **M6 — Knowledge Base Management** (create/list/rename/delete, strict ownership, 404 for others' KBs).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 
@@ -693,6 +710,7 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
 - **Schema design with database-enforced rules** (constraints, cascades, generated tsvector + GIN) and **reviewed Alembic migrations** (M4).
 - **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
 - **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
+- **Authentication**: Argon2id with no account-enumeration leaks, JWT in an httpOnly/Secure/SameSite=Strict cookie, route guards, session-expiry handling (M5).
 
 ### G.2 Architectural decisions & reasoning (talking points)
 Most likely to come up: D1 (no LangChain), D7 (hybrid + RRF), D13 (threshold gate), D14
@@ -734,6 +752,10 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 29 | Walk me through your database schema and the constraints the database enforces. | In Notion (M4) |
 | 30 | How did you cut database latency? Show the numbers. | In Notion (M4) |
 | 31 | How do your database tests stay isolated from each other and from real data? | In Notion (M4) |
+| 32 | How do you store passwords, and why Argon2id? | In Notion (M5) |
+| 33 | Where do you keep the session token, and why not localStorage? | In Notion (M5) |
+| 34 | How do you prevent account enumeration and CSRF? | In Notion (M5) |
+| 35 | What are the downsides of JWT sessions? | In Notion (M5) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

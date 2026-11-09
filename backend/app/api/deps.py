@@ -6,6 +6,7 @@ so tests can hand them substitutes.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 from typing import Annotated
 
@@ -15,6 +16,9 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.errors import UnauthorizedError
+from app.core.security import SESSION_COOKIE, InvalidTokenError, decode_access_token
+from app.models import User
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -54,3 +58,32 @@ EngineDep = Annotated[Engine, Depends(get_engine)]
 QdrantDep = Annotated[QdrantClient, Depends(get_qdrant)]
 DbSession = Annotated[Session, Depends(get_db)]
 ReadDbSession = Annotated[Session, Depends(get_read_db)]
+
+
+def get_current_user_id(request: Request, settings: SettingsDep) -> uuid.UUID:
+    """The signed-in user's id, read from the session cookie. No database query.
+
+    Most routes only need the id (to filter by owner), so this costs no round trip: the token's
+    signature proves the id is genuine.
+    """
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        raise UnauthorizedError("Please sign in to continue.")
+    try:
+        return decode_access_token(token, settings.jwt_secret.get_secret_value())
+    except InvalidTokenError:
+        raise UnauthorizedError("Your session has expired. Please sign in again.") from None
+
+
+CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]
+
+
+def get_current_user(user_id: CurrentUserId, db: ReadDbSession) -> User:
+    """The full user row, for routes that need more than the id (one read query)."""
+    user = db.get(User, user_id)
+    if user is None:  # the account was deleted after the token was issued
+        raise UnauthorizedError("Your session has expired. Please sign in again.")
+    return user
+
+
+CurrentUser = Annotated[User, Depends(get_current_user)]

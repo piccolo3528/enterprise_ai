@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # --- Auth ---------------------------------------------------------------------------
     jwt_secret: SecretStr
     jwt_expire_minutes: int = Field(default=60, ge=1)
+    # Secure cookies are only sent over HTTPS. Browsers treat http://localhost as secure, so this
+    # stays True in development too; only set it False for plain-HTTP hosts other than localhost.
+    cookie_secure: bool = True
 
     # --- Uploads ------------------------------------------------------------------------
     upload_dir: Path = Path("./storage/uploads")

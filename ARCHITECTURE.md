@@ -347,6 +347,22 @@ Generation settings: `temperature ≈ 0.1–0.2` (factual Q&A favours determinis
 - Scope: single-owner knowledge bases. Sharing and team roles are out of scope for v1 (see the
   tracker's limitations).
 
+**Implemented in M5** (`core/security.py`, `services/auth.py`, `api/routes/auth.py`, `api/deps.py`):
+
+| Piece | Detail |
+|---|---|
+| Endpoints | `POST /api/auth/register` (201, also signs in) · `POST /api/auth/login` · `POST /api/auth/logout` (204) · `GET /api/auth/me` |
+| Hashing | Argon2id, argon2-cffi defaults (64 MiB, 3 passes, 4 lanes; ~108 ms per check measured). Hashes are upgraded at login if the settings change. Unknown emails are checked against a dummy hash, so response time doesn't reveal which accounts exist. |
+| Cookie | `session=<JWT>`; `HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=JWT_EXPIRE_MINUTES×60`. Browsers accept `Secure` on `http://localhost` (verified in Chrome), so `COOKIE_SECURE` stays true in development. |
+| Token | HS256 only (no `alg: none`, no key confusion); `sub`, `iat` and `exp` required. |
+| Who is signed in | `CurrentUserId` trusts the signed token and does **no** database read; `CurrentUser` loads the row (one read) only where needed. |
+| Errors | Wrong password and unknown email: the same 401 *"Incorrect email or password."*. Duplicate email: 409, detected by the unique constraint, so there's no pre-check query and no race. |
+| CSRF | SameSite=Strict, plus JSON-only bodies: a cross-site form can't send `application/json` without a CORS preflight, which this server doesn't allow (a `text/plain` login is refused). |
+| Frontend | `AuthContext` (states: loading, authenticated, anonymous, error); `ProtectedRoute` / `PublicOnlyRoute`; an expired session on any API call returns the user to sign-in with a notice. |
+
+Known limits: sign-in rate limiting is planned for M16 (L26), and stateless tokens can't be
+revoked before they expire (L27).
+
 ### 4.9 Upload security
 
 - Allow-list: `.pdf`, `.docx`, `.txt`, **`.md`** (S1). The extension **and** the content must agree

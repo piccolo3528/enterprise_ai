@@ -1,41 +1,51 @@
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import App from "./App";
+import { getMe } from "./api/auth";
+import { renderApp, TEST_USER } from "./test/renderApp";
 
 vi.mock("./api/health", () => ({ getHealth: vi.fn(() => new Promise(() => {})) }));
+vi.mock("./api/auth", () => ({
+  getMe: vi.fn(),
+  login: vi.fn(),
+  register: vi.fn(),
+  logout: vi.fn(),
+}));
 
-function renderAt(path) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
-  );
-}
+beforeEach(() => {
+  getMe.mockReset();
+  getMe.mockResolvedValue(TEST_USER); // signed in for these layout tests
+});
 
-describe("App routing and layout", () => {
-  it("sends the home page to the status page", () => {
-    renderAt("/");
-    expect(screen.getByRole("heading", { name: "System status" })).toBeInTheDocument();
+describe("App routing and layout (signed in)", () => {
+  it("sends the home page to the status page", async () => {
+    renderApp("/");
+    expect(await screen.findByRole("heading", { name: "System status" })).toBeInTheDocument();
   });
 
-  it("shows a not-found page for unknown routes", () => {
-    renderAt("/no-such-page");
-    expect(screen.getByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+  it("shows a not-found page for unknown routes", async () => {
+    renderApp("/no-such-page");
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
   });
 
-  it("treats a not-yet-built page as not found, top bar included", () => {
-    renderAt("/knowledge-bases");
-    expect(screen.getByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+  it("treats a not-yet-built page as not found, top bar included", async () => {
+    renderApp("/knowledge-bases");
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByRole("banner")).toHaveTextContent("Page not found");
   });
 
-  it("links only to pages that exist; the rest are marked Soon", () => {
-    renderAt("/status");
-    const nav = screen.getByRole("navigation", { name: "Main" });
+  it("links only to pages that exist; the rest are marked Soon", async () => {
+    renderApp("/status");
+    const nav = await screen.findByRole("navigation", { name: "Main" });
     const links = Array.from(nav.querySelectorAll("a")).map((a) => a.textContent);
     expect(links).toEqual(["System status"]);
     expect(nav).toHaveTextContent("Knowledge basesSoon");
+  });
+
+  it("shows who is signed in", async () => {
+    renderApp("/status");
+    const banner = await screen.findByRole("banner");
+    expect(banner).toHaveTextContent("Ana Silva");
+    expect(banner).toHaveTextContent("AS");
   });
 });

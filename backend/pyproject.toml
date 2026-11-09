@@ -12,6 +12,10 @@ dependencies = [
     "uvicorn[standard]>=0.54,<0.55",
     # configuration
     "pydantic-settings>=2.16,<3",
+    "email-validator>=2.3,<3",  # pydantic's EmailStr
+    # authentication: password hashing + signed session tokens
+    "argon2-cffi>=25.1,<26",
+    "pyjwt>=2.15,<3",
     "python-dotenv>=1.0",
     # Markdown front matter (S2); always yaml.safe_load, never yaml.load
     "pyyaml>=6.0",

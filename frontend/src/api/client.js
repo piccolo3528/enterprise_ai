@@ -23,6 +23,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Per-field messages from a 422 response, keyed by field name:
+ * [{field: "body.password", message: "..."}] → {password: "..."}.
+ */
+export function fieldErrors(error) {
+  const result = {};
+  for (const { field, message } of error?.details ?? []) {
+    const name = field.split(".").at(-1);
+    result[name] ??= message;
+  }
+  return result;
+}
+
 /** Turn any Axios failure into an ApiError with a message that is safe to show. */
 export function toApiError(error) {
   if (axios.isCancel(error)) {
@@ -70,7 +83,24 @@ export function toApiError(error) {
   });
 }
 
+// Endpoints where a 401 is an ordinary answer ("not signed in", "wrong password"), not a sign
+// that the session just expired.
+const AUTH_PROBES = ["/auth/me", "/auth/login", "/auth/register"];
+
+let onUnauthorized = null;
+
+/** Called by AuthContext: what to do when any other request finds the session has expired. */
+export function setUnauthorizedHandler(handler) {
+  onUnauthorized = handler;
+}
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => Promise.reject(toApiError(error)),
+  (error) => {
+    const apiError = toApiError(error);
+    if (apiError.status === 401 && !AUTH_PROBES.includes(error.config?.url)) {
+      onUnauthorized?.(apiError);
+    }
+    return Promise.reject(apiError);
+  },
 );

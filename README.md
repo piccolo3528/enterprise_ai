@@ -4,9 +4,9 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: foundations done (M0–M4): backend and frontend skeletons, a live
-> system-status page, and the full database schema on Neon (Singapore), versioned by Alembic.
-> User features start with authentication (M5).**
+> **Project status: M0–M5 done: backend and frontend skeletons, the database schema on Neon
+> (Singapore), and accounts (register, sign in, sign out). Next: knowledge bases (M6) and document
+> upload (M7).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -306,8 +306,10 @@ npm install        # first time, and whenever package.json changes
 npm run dev        # `npm start` does the same
 ```
 
-Open **http://localhost:5173**. It opens on **System status**, a live check of Neon, Qdrant and
-the Gemini configuration with a Refresh button. Vite forwards every `/api/...` request to the
+Open **http://localhost:5173**. The first time, click **Create an account** (name, email, and a
+password of at least 8 characters); after that, **Sign in**. You land on **System status**, a live
+check of Neon, Qdrant and the Gemini configuration with a Refresh button. Your session lasts
+`JWT_EXPIRE_MINUTES` (60 by default); **Sign out** is in the top bar. Vite forwards every `/api/...` request to the
 backend on port 8000, so the browser sees one website. That is why no API keys ever reach the
 frontend.
 
