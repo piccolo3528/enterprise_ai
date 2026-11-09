@@ -291,7 +291,7 @@ In a **new** PowerShell window (the backend from step 11 keeps running in the fi
 ```powershell
 cd enterprise-ai\frontend
 npm install        # first time, and whenever package.json changes
-npm run dev
+npm run dev        # `npm start` does the same
 ```
 
 Open **http://localhost:5173**. It opens on **System status**, a live check of Neon, Qdrant and
