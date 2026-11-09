@@ -289,7 +289,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M2.
 - **Testing:** see §F.8. Error states checked live: backend stopped → "Can't reach the backend"; Qdrant pointed at a dead port (`QDRANT_URL` env override) → Degraded, Qdrant card Unavailable.
 - **Bugs found by the live check and fixed (each now has a test):** (1) an old green report stayed visible under the error after a failed refresh; (2) the top bar named an unbuilt page instead of "Page not found".
-- **Open (your check):** phone layout (sidebar slide-in). Chrome wouldn't resize its maximised window during my test, so it isn't visually verified. Make the window narrow, or use DevTools device mode.
+- **Phone layout:** confirmed by the user (2026-11-09). Chrome wouldn't resize its window during my own test.
 
 ### M4 — Database Schema & Migrations · `COMPLETED` (2026-11-09)
 - **Objective:** All tables exist in Neon, versioned by Alembic.
@@ -503,7 +503,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L22 | LLM-as-judge uses the same model family | Bias; quota cost | Small dataset, cached, spot-checked |
 | L23 | Neon's docs don't explicitly confirm built-in FTS | Hybrid search design depends on it | Scripted check in M1 before M4 |
 | L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~200–290 ms per round trip** (varies by day), ~1.35 s per new DB connection, ~245 ms per Qdrant call. **M2: one pooled query = 4 round trips** (pre-ping, `BEGIN`, query, `ROLLBACK`) ≈ 0.8–1.05 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. **Resolved in M4 (D32 + D27):** Neon moved to Singapore (54–65 ms per trip) and reads use autocommit sessions: a typical read takes 109 ms instead of ~815 ms. |
-| L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored. **M4: the app now uses a new Neon project (new credentials); deleting the old US project retires the exposed ones.** |
+| L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored. **Closed (M4): the app uses a new Neon project, and the old US project was deleted by the user (2026-11-09).** |
 
 ### F.6 Decision Log
 
@@ -590,6 +590,8 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-09 | M4 | `alembic revision --autogenerate` → review → `upgrade head` → `check` | ✔ | 6 tables + 5 indexes detected; downgrade order verified; `alembic check`: "No new upgrade operations detected". `production` and `test` both at `5fb1c162ac1c` |
 | 2026-11-09 | M4 | `pytest` (unit) | ✔ 39 passed | +11 model tests (DDL names, cascades, `md`, generated + deferred tsvector, `metadata` column, lowercase email, `lazy="raise"`, Python UUIDs, `direct_url`, read session refuses writes) +2 config tests (`postgresql://` rejected on optional URLs) |
 | 2026-11-09 | M4 | `pytest -m live` (Neon `test` branch) | ✔ 15 passed | 3 service + 2 migration (downgrade→upgrade round trip, models ↔ migration in sync) + 10 schema (server defaults via RETURNING, unique/lowercase email, KB name per owner, status CHECK, duplicate sha256 per KB, cascade delete user → everything, stemmed FTS on generated column, GIN index, autocommit read session). Fixed: Alembic `path_separator` deprecation warning |
+| 2026-11-09 | M4 | User checks after M4 | ✔ | Old US Neon project + Qdrant cluster **deleted** (L25 closed); **new Groq key** → check PASS (11 models); **phone layout** confirmed by the user (M3 open item closed) |
+| 2026-11-09 | M4 | Status page showed Qdrant "Unavailable · ResponseHandlingException" | ✔ explained | Qdrant fine with the current `.env` (633 ms). The running backend had started at 15:51, `.env` changed at 16:46: settings are read once at startup, so it still used the deleted US cluster's URL. Fix: restart; docs now use `uvicorn ... --reload --reload-include .env` |
 | 2026-11-09 | M4 | D27 probe (scratch script) | ✔ | Warm round trip 65 ms; read via normal session **221 ms** (BEGIN+SELECT+ROLLBACK+pre-ping) vs read session **109 ms** (pre-ping+SELECT): kept. vs M2 us-east-1 ≈ 815 ms → **~7.5× faster** |
 
 ### F.9 Environment facts
@@ -672,10 +674,9 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   validator that checks only one of three similar settings is a trap (found via the test URL).
 
 ### F.10 Next recommended action
-1. **Delete the old US Neon project and the old US Qdrant cluster** (retires the exposed credentials, L25).
-2. Your quick checks: `uvicorn --reload` restarts on save (M2), and the phone layout (M3).
-3. Start **M5 — Authentication** (Argon2id passwords, JWT in an httpOnly cookie, register/login/logout, protected routes).
-4. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`; check why the Groq key returns 403.
+1. Start **M5 — Authentication** (Argon2id passwords, JWT in an httpOnly cookie, register/login/logout, protected routes).
+2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
+3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 
 ---
 
