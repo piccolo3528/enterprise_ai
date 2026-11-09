@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-09** · Current milestone: **M3 — Frontend Skeleton (COMPLETED)** · Next: **M4 — Database Schema & Migrations**
+> Last updated: **2026-11-09** · Current milestone: **M4 — Database Schema & Migrations (COMPLETED)** · Next: **M5 — Authentication**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -154,9 +154,9 @@ explain the concept back in your own words (or answer the related interview ques
 | 3 | Virtual environments & dependency pinning | Isolated per-project Python packages; reproducible installs | COMPLETED (M1: `backend/.venv`, `pyproject.toml`) | ☐ | `backend/pyproject.toml` |
 | 4 | Managed/serverless PostgreSQL | The database runs in the cloud; compute scales to zero and storage is separate | COMPLETED (M2: background warm-up at startup; deliberately no keep-alive, to save compute hours) | ☐ | `app/db/session.py`, `app/factory.py` |
 | 5 | TLS & channel binding | Encrypting the DB connection and authenticating the server | COMPLETED (M2: app uses `verify-full` + certifi + channel binding; live test checks the parameters) | ☐ | `app/db/session.py`, `tests/integration/test_live_services.py` |
-| 6 | Connection pooling (client + PgBouncer) | Reusing connections; transaction-mode rules; stale connections after scale-to-zero | IN PROGRESS (M2: pool live; measured 4 round trips per pooled request; tuning decision D27 in M4) | ☐ | `app/db/session.py` |
-| 7 | Database branching | Copy-on-write DB copies for safe testing | NOT STARTED | ☐ | `tests/conftest.py` |
-| 8 | ORM & migrations | Python classes ↔ tables; Alembic versions every schema change | NOT STARTED | ☐ | `app/models/`, `alembic/` |
+| 6 | Connection pooling (client + PgBouncer) | Reusing connections; transaction-mode rules; stale connections after scale-to-zero | COMPLETED (M4: autocommit read sessions measured, 221 → 109 ms) | ☐ | `app/db/session.py` |
+| 7 | Database branching | Copy-on-write DB copies for safe testing | COMPLETED (M4: `test` branch, rolled-back transaction per test, dev-host guard) | ☐ | `tests/integration/conftest.py` |
+| 8 | ORM & migrations | Python classes ↔ tables; Alembic versions every schema change | COMPLETED (M4: 6 models, migration `5fb1c162ac1c`, up/down + `alembic check` tested) | ☐ | `app/models/`, `alembic/` |
 | 9 | Password hashing (Argon2id) | Slow, salted, memory-hard hashing, so stolen hashes resist cracking | NOT STARTED | ☐ | `app/core/security.py` |
 | 10 | JWT & cookie sessions | Signed, stateless token in an httpOnly cookie; XSS can't read it | NOT STARTED | ☐ | `app/core/security.py`, `api/deps.py` |
 | 11 | Authorization / tenant isolation | Every query scoped to the owner; vector search filtered by an owned `kb_id` | NOT STARTED | ☐ | `api/deps.py`, `vector_store.py` |
@@ -204,7 +204,7 @@ explain the concept back in your own words (or answer the related interview ques
 | 53 | Cross-store consistency | Ordering writes/deletes across Neon and Qdrant to fail safely | NOT STARTED | ☐ | `ingestion/pipeline.py`, `routes/documents.py` |
 | 54 | Async I/O & thread offloading | `async` routes stay responsive; blocking clients run in threads (`asyncio.to_thread`); independent calls run concurrently (`gather`) | IN PROGRESS (M2: health checks run in parallel: ~1 s, not ~1.6 s) | ☐ | `services/health.py`, `factory.py` |
 | 55 | Observability: request IDs & error contracts | One ID ties a response, its error body and its log lines together; one stable error shape; internals never leak | COMPLETED (M2) | ☐ | `core/middleware.py`, `core/errors.py`, `core/logging.py` |
-| 56 | Latency budgets & round trips | Count network round trips per request; distance sets the price of each | IN PROGRESS (M2: 4 trips per pooled query measured; D27) | ☐ | `ARCHITECTURE.md` §4.12, `db/session.py` |
+| 56 | Latency budgets & round trips | Count network round trips per request; distance sets the price of each | COMPLETED (M4: region move + autocommit reads; ~815 → 109 ms per read) | ☐ | `ARCHITECTURE.md` §4.12, `db/session.py` |
 | 57 | Dev proxy & same origin | The browser talks to one origin; Vite forwards `/api` to FastAPI, so no CORS and no secrets in the browser | COMPLETED (M3) | ☐ | `frontend/vite.config.js` |
 | 58 | Client-side error model & request cancellation | Every failure → one `ApiError`; `AbortController` stops stale responses overwriting new ones | COMPLETED (M3) | ☐ | `src/api/client.js`, `pages/SystemStatus.jsx` |
 | 59 | Component testing | Render components in a simulated DOM and assert what a user sees (Testing Library), with the API mocked | COMPLETED (M3) | ☐ | `src/**/*.test.jsx` |
@@ -291,13 +291,18 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Bugs found by the live check and fixed (each now has a test):** (1) an old green report stayed visible under the error after a failed refresh; (2) the top bar named an unbuilt page instead of "Page not found".
 - **Open (your check):** phone layout (sidebar slide-in). Chrome wouldn't resize its maximised window during my test, so it isn't visually verified. Make the window narrow, or use DevTools device mode.
 
-### M4 — Database Schema & Migrations · `NOT STARTED`
+### M4 — Database Schema & Migrations · `COMPLETED` (2026-11-09)
 - **Objective:** All tables exist in Neon, versioned by Alembic.
 - **Tasks:**
-  - [ ] SQLAlchemy models: users, knowledge_bases, documents, chunks (generated `tsvector` + GIN), conversations, messages
-  - [ ] Alembic configured to use `DATABASE_MIGRATION_URL` (direct)
-  - [ ] Initial migration applied to `main` and `test` branches
-  - [ ] Test fixtures: transaction-per-test rollback on the `test` branch
+  - [x] SQLAlchemy models: users, knowledge_bases, documents (incl. `md`, front-matter `metadata`), chunks (generated `tsvector` + GIN, `section`, `strategy`), conversations, messages; conventions in D33. DDL reviewed offline: removed 3 redundant indexes
+  - [x] Alembic configured (`alembic.ini`, `alembic/env.py`): direct URL from `.env` (never in the ini), `-x target=test` for the test branch, offline `--sql` mode, ruff-formatted revisions
+  - [x] D27: `build_read_session_factory` (autocommit, refuses writes) + `ReadDbSession` dependency
+  - [x] **D32 move done:** new Neon project in Singapore (`aws-ap-southeast-1`, PG 18.6), branches `production` + `test`; Qdrant free cluster on GCP Sydney. `verify_setup.py --skip-llm`: 6 PASS
+  - [x] Initial migration `5fb1c162ac1c` autogenerated, reviewed (markers removed, downgrade order checked), applied to `production` and `test`; `alembic check`: no differences
+  - [x] Config now rejects `postgresql://` on all three DB URLs (found when `TEST_DATABASE_URL` was pasted without `+psycopg`)
+  - [x] Test fixtures: transaction-per-test rollback on the `test` branch; guard refuses to run if the test URL is the dev database (`tests/integration/conftest.py`)
+  - [x] 11 offline model tests + 12 database tests on the `test` branch, all passing (§F.8)
+  - [x] D27 measured: read 221 ms (normal session) → **109 ms** (read session) on Singapore → kept
 - **Expected output:** tables visible in the Neon console; `alembic upgrade head` / `downgrade` both work.
 - **Dependencies:** M2.
 - **Testing:** migration up/down; model constraint tests (unique email, cascades) on the `test` branch.
@@ -456,13 +461,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
   warm-up, uniform error responses with request IDs, `GET /api/health`, `/docs`.
 - Frontend skeleton (M3): app shell, base UI components, live **System status** page through the
   Vite proxy, uniform `ApiError` handling.
-- No user features yet (auth, knowledge bases and documents start in M4–M7).
+- Database schema (M4): 6 tables on Neon Singapore, versioned by Alembic; constraints and cascades
+  enforced by PostgreSQL; autocommit read sessions; transaction-per-test fixtures on the `test` branch.
+- No user features yet (auth, knowledge bases and documents start in M5–M7).
 
 ### F.2 In progress
-- Nothing. M4 (database schema & migrations) is next.
+- Nothing. M5 (authentication) is next.
 
 ### F.3 Remaining functionality
-- Everything in M4–M17 (M18 optional).
+- Everything in M5–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -495,8 +502,8 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L21 | English FTS config & English embedding model | Weak on non-English docs | Documented; config swap |
 | L22 | LLM-as-judge uses the same model family | Bias; quota cost | Small dataset, cached, spot-checked |
 | L23 | Neon's docs don't explicitly confirm built-in FTS | Hybrid search design depends on it | Scripted check in M1 before M4 |
-| L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~200–290 ms per round trip** (varies by day), ~1.35 s per new DB connection, ~245 ms per Qdrant call. **M2: one pooled query = 4 round trips** (pre-ping, `BEGIN`, query, `ROLLBACK`) ≈ 0.8–1.05 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. Optional: recreate the still-empty Neon project in an Asia region (needs user decision). |
-| L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored; **recommended: reset the Neon role password** |
+| L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~200–290 ms per round trip** (varies by day), ~1.35 s per new DB connection, ~245 ms per Qdrant call. **M2: one pooled query = 4 round trips** (pre-ping, `BEGIN`, query, `ROLLBACK`) ≈ 0.8–1.05 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. **Resolved in M4 (D32 + D27):** Neon moved to Singapore (54–65 ms per trip) and reads use autocommit sessions: a typical read takes 109 ms instead of ~815 ms. |
+| L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored. **M4: the app now uses a new Neon project (new credentials); deleting the old US project retires the exposed ones.** |
 
 ### F.6 Decision Log
 
@@ -529,7 +536,9 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D26 | 2026-11-06 | Commit identity uses the GitHub **noreply** email | Commits are public; keeps the personal Gmail out of history | Personal email | Accepted (changeable) |
 | D24 | 2026-11-06 | Neon runs **PostgreSQL 18.6** (project default) instead of the planned 17 | All features we need (generated columns, FTS, GIN) are present; verified by script | Recreate on 17 | Accepted |
 | D22 | 2026-11-06 | **Groq as an optional fallback LLM provider**; Gemini stays default | User request; Groq has a free tier. Kept behind the `llm` interface so the RAG code doesn't change. | xAI Grok (no standing free API tier; rejected under the no-paid-APIs rule) | Proposed: env placeholders only; integration milestone TBD |
-| D27 | 2026-11-06 | **Open, decide in M4:** reduce the 4 round trips per pooled query. Options: (a) autocommit for read-only requests (−2 trips); (b) drop `pool_pre_ping`, rely on `pool_recycle=240` + one retry on a dropped connection (−1 trip); (c) move Neon/Qdrant to an Asia region (cheaper trips, L24) | Measured in M2: pre-ping, `BEGIN`, query and `ROLLBACK` each cost a full round trip (815 ms; 611 ms without pre-ping) | Keep as is (simplest, slowest) | **Needs your decision** in M4, with real queries measured |
+| D27 | 2026-11-06 | **Open, decide in M4:** reduce the 4 round trips per pooled query. Options: (a) autocommit for read-only requests (−2 trips); (b) drop `pool_pre_ping`, rely on `pool_recycle=240` + one retry on a dropped connection (−1 trip); (c) move Neon/Qdrant to an Asia region (cheaper trips, L24) | Measured in M2: pre-ping, `BEGIN`, query and `ROLLBACK` each cost a full round trip (815 ms; 611 ms without pre-ping) | Keep as is (simplest, slowest) | **Decided 2026-11-09 (user): option (a)**, autocommit read sessions (`ReadDbSession`); writes keep full transactions. Implemented in M4; keep only if the measurement confirms |
+| D32 | 2026-11-09 | **Move Neon and Qdrant to Asia**: Neon `aws-ap-southeast-1` (Singapore; Neon's only Asia regions are Singapore and Sydney, and a region can't be changed after creation), Qdrant the nearest Asia region offered | Every round trip from India gets several times shorter; both stores still empty, so the move is cheap; a new project also replaces the exposed credentials (L25) | Keep us-east-1 | **Done (M4)**: Neon Singapore; Qdrant free tier has no AWS Asia region, so GCP Sydney (`australia-southeast1`) |
+| D33 | 2026-11-09 | Schema conventions: UUIDs generated in Python; CHECK constraints instead of ENUM types; constraint naming convention; `ON DELETE CASCADE` + `passive_deletes`; relationships `lazy="raise"`; emails stored lowercase (CHECK); no index duplicating a unique constraint's leading column | Fewer round trips (no read-back of ids, no lazy loads, no child loading on delete); migration-friendly | DB-generated ids, ENUMs, default lazy loading | Accepted (M4) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
 | D30 | 2026-11-06 | Warm Neon + Qdrant in the background at startup; no periodic keep-alive | Server is ready immediately; the first user request doesn't pay ~4.5 s. A keep-alive would stop Neon suspending (≈182 CU-h/month > 100 free) | Blocking warm-up; keep-alive ping | Accepted (M2) |
@@ -577,6 +586,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-09 | M3 | Live: `/knowledge-bases` (unbuilt) | ✔ after fix | Not-found page; top bar showed "Knowledge bases" → fixed to "Page not found" + test |
 | 2026-11-09 | M3 | First check after 30 idle min | ℹ | DB 2.74 s (Neon had suspended; recycled connection + wake-up). One request in the backend log, so it wasn't StrictMode's double effect (my first guess, disproved by the log) |
 | 2026-11-09 | M3 | Phone layout | ⚠ not verified | Chrome didn't resize the maximised window. User to check |
+| 2026-11-09 | M4 | `verify_setup.py --skip-llm` on the **Singapore** Neon + **Sydney** Qdrant | ✔ 6 PASS, 2 WARN | Neon PG 18.6, TLS, warm round trip **54–58 ms** (us-east-1: ~200–290 ms); FTS + GIN OK; verify-full OK; Qdrant filtered search **164 ms** (was ~260 ms). WARN: Gemini skipped on purpose; **Groq key check HTTP 403** (passed in M1; Groq isn't used yet; check the key before D22 work) |
+| 2026-11-09 | M4 | `alembic revision --autogenerate` → review → `upgrade head` → `check` | ✔ | 6 tables + 5 indexes detected; downgrade order verified; `alembic check`: "No new upgrade operations detected". `production` and `test` both at `5fb1c162ac1c` |
+| 2026-11-09 | M4 | `pytest` (unit) | ✔ 39 passed | +11 model tests (DDL names, cascades, `md`, generated + deferred tsvector, `metadata` column, lowercase email, `lazy="raise"`, Python UUIDs, `direct_url`, read session refuses writes) +2 config tests (`postgresql://` rejected on optional URLs) |
+| 2026-11-09 | M4 | `pytest -m live` (Neon `test` branch) | ✔ 15 passed | 3 service + 2 migration (downgrade→upgrade round trip, models ↔ migration in sync) + 10 schema (server defaults via RETURNING, unique/lowercase email, KB name per owner, status CHECK, duplicate sha256 per KB, cascade delete user → everything, stemmed FTS on generated column, GIN index, autocommit read session). Fixed: Alembic `path_separator` deprecation warning |
+| 2026-11-09 | M4 | D27 probe (scratch script) | ✔ | Warm round trip 65 ms; read via normal session **221 ms** (BEGIN+SELECT+ROLLBACK+pre-ping) vs read session **109 ms** (pre-ping+SELECT): kept. vs M2 us-east-1 ≈ 815 ms → **~7.5× faster** |
 
 ### F.9 Environment facts
 Python **3.12.10** (official, per-user, `%LOCALAPPDATA%\Programs\Python\Python312`; `py -3.12`), Node v26.13.0,
@@ -593,8 +607,11 @@ vitest 5.1.0, jsdom 31.0.0, @testing-library/react 16.3.3, jest-dom 7.0.1, user-
 `npm audit`: 0 vulnerabilities.
 **Model cache:** `%USERPROFILE%\.cache\huggingface` (bge-small-en-v1.5, ms-marco-MiniLM-L-6-v2).
 **Gemini free-tier limits for your project:** _to fill in from AI Studio (RPM / TPM / RPD per model)._
-**Neon project:** AWS `us-east-1`, database `neondb`, role `neondb_owner`; PG version _to confirm in M1_.
-**Qdrant Cloud cluster:** AWS `us-east-1`, Qdrant 1.20.0.
+**Neon project (since 2026-11-09, D32):** `Enterprise_AI`, AWS `ap-southeast-1` (Singapore), PostgreSQL
+18.6, branches `production` (dev) and `test`. (Previously `us-east-1`; to be deleted by the user.)
+**Qdrant Cloud cluster (since 2026-11-09):** free tier, GCP `australia-southeast1` (Sydney). The free
+AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by the user.)
+**Added in M4:** alembic 1.20.1.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -648,13 +665,17 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   simple; cancel stale requests (`AbortController`); a status page must never show old green
   next to a failed check; **testing in a real browser found 2 bugs the unit tests didn't**;
   check logs before trusting a theory (StrictMode guess was wrong; Neon had gone to sleep).
+- **M4:** moving closer beat every code optimisation (54 ms vs ~290 ms per trip); autocommit reads
+  halve a read (221 → 109 ms); review generated DDL/migrations by hand (3 redundant indexes
+  removed); CHECK constraints over ENUMs; ids generated in Python save a round trip; `lazy="raise"`
+  turns hidden queries into errors; never import from `conftest.py` (two conftests clashed); a
+  validator that checks only one of three similar settings is a trap (found via the test URL).
 
 ### F.10 Next recommended action
-1. Your quick checks: `uvicorn --reload` restarts on save (M2), and the phone layout (M3).
-2. **Before M4 (decisions needed):** D27 (cutting round trips per query) and, related, whether to
-   move Neon to an Asia region (L24). Create the Neon **`test` branch** and set `TEST_DATABASE_URL`.
-3. Start **M4 — Database Schema & Migrations** (SQLAlchemy models, Alembic, first migration on Neon).
-4. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`; reset the Neon password (L25).
+1. **Delete the old US Neon project and the old US Qdrant cluster** (retires the exposed credentials, L25).
+2. Your quick checks: `uvicorn --reload` restarts on save (M2), and the phone layout (M3).
+3. Start **M5 — Authentication** (Argon2id passwords, JWT in an httpOnly cookie, register/login/logout, protected routes).
+4. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`; check why the Groq key returns 403.
 
 ---
 
@@ -668,6 +689,9 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
 - **Concurrent health checks** with per-check timeouts (`asyncio.gather` + `to_thread`) (M2).
 - **Same-origin dev proxy** and a **uniform client-side error model** (`ApiError` with request ID) (M3).
 - **Request cancellation and honest UI states**: loading / healthy / degraded / unreachable, never stale green (M3).
+- **Schema design with database-enforced rules** (constraints, cascades, generated tsvector + GIN) and **reviewed Alembic migrations** (M4).
+- **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
+- **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
 
 ### G.2 Architectural decisions & reasoning (talking points)
 Most likely to come up: D1 (no LangChain), D7 (hybrid + RRF), D13 (threshold gate), D14
@@ -701,11 +725,14 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 21 | Why use both PostgreSQL and a vector database? Why not pgvector? | Draft below |
 | 22 | What is connection pooling? What changes with PgBouncer in transaction mode? | Draft below |
 | 23 | Your database scales to zero. What problems does that cause, and how did you handle them? | Draft below |
-| 24 | How do you run migrations safely against a managed database? | After M4 |
+| 24 | How do you run migrations safely against a managed database? | In Notion (M4) |
 | 25 | How do you make sure secrets never end up in logs or error messages? | Draft below |
 | 26 | How does your frontend talk to the backend, and why no CORS? | In Notion (M3) |
 | 27 | How do you handle API errors and loading states in React? | In Notion (M3) |
 | 28 | What bugs did browser testing find that unit tests didn't? | In Notion (M3) |
+| 29 | Walk me through your database schema and the constraints the database enforces. | In Notion (M4) |
+| 30 | How did you cut database latency? Show the numbers. | In Notion (M4) |
+| 31 | How do your database tests stay isolated from each other and from real data? | In Notion (M4) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

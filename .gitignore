@@ -36,3 +36,6 @@ Thumbs.db
 # --- Your own RAG source documents (may be private / not redistributable) ---
 rag-documents/*
 !rag-documents/README.md
+
+# Screenshots pasted into the editor land here; they are not project files
+/backend/*.png

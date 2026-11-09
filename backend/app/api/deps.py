@@ -30,8 +30,18 @@ def get_qdrant(request: Request) -> QdrantClient:
 
 
 def get_db(request: Request) -> Iterator[Session]:
-    """One session per request, always closed (returning its connection to the pool)."""
+    """A transactional session for requests that write. Always closed, returning its connection
+    to the pool; uncommitted work is rolled back."""
     session = request.app.state.session_factory()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def get_read_db(request: Request) -> Iterator[Session]:
+    """An autocommit session for read-only requests: fewer round trips per query (D27)."""
+    session = request.app.state.read_session_factory()
     try:
         yield session
     finally:
@@ -43,3 +53,4 @@ SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 EngineDep = Annotated[Engine, Depends(get_engine)]
 QdrantDep = Annotated[QdrantClient, Depends(get_qdrant)]
 DbSession = Annotated[Session, Depends(get_db)]
+ReadDbSession = Annotated[Session, Depends(get_read_db)]

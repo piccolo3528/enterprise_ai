@@ -20,7 +20,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
-from app.db.session import build_engine, build_session_factory
+from app.db.session import build_engine, build_read_session_factory, build_session_factory
 from app.db.session import warm_up as warm_up_database
 from app.services.health import app_version
 from app.services.vector_store import build_qdrant_client
@@ -57,6 +57,7 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
         logger.info("Starting (configuration: %s)", settings.describe())
         app.state.engine = build_engine(settings.database_url.get_secret_value())
         app.state.session_factory = build_session_factory(app.state.engine)
+        app.state.read_session_factory = build_read_session_factory(app.state.engine)
         app.state.qdrant = build_qdrant_client(settings)
         # Warm-up runs in the background, so the server accepts requests immediately (and
         # `--reload` restarts stay fast). A request that arrives while the warm-up connection is

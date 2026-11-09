@@ -6,11 +6,11 @@ import re
 import time
 
 import pytest
-from conftest import make_settings
 from fastapi.testclient import TestClient
 
 from app.factory import create_app
 from app.services import health as health_service
+from tests.helpers import make_settings
 
 
 class FakeQdrant:

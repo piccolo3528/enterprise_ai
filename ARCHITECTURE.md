@@ -424,7 +424,8 @@ performance cost is negligible at our scale.
 | `connect_args.prepare_threshold` | `None` | See above. |
 | `connect_args.sslnegotiation` | `"direct"` | Starts TLS immediately instead of first asking "do you speak SSL?". **Measured:** saves one ~290 ms round trip per new connection (needs libpq ≥ 17; psycopg bundles 18). |
 
-**Measured latency budget (M1, laptop in India → `us-east-1`).** About **290 ms per query round
+**Measured latency budget (M1, laptop in India → `us-east-1`; see the M4 table below for
+Singapore).** About **290 ms per query round
 trip**, about **1.35 s per new connection**, and about **4.9 s for the very first SQLAlchemy query**
 (connect + SQLAlchemy's one-time dialect setup queries, + wake-up if suspended). Design consequences:
 - **Reuse connections** (the pool). Opening one per request would add more than a second.
@@ -445,11 +446,26 @@ on the day, so ~0.8–1.1 s for a single `SELECT 1`):
 | The query | 1 | |
 | `ROLLBACK`/`COMMIT` | 1 | Ends the transaction when the connection returns to the pool |
 
-Turning pre-ping off measured 3 round trips (611 ms vs 815 ms). Options to cut this, to be decided
-in M4 with real queries (D27): autocommit for read-only requests (removes `BEGIN` and `ROLLBACK`);
-relying on `pool_recycle=240` instead of pre-ping (a connection that sat idle long enough for Neon to
-suspend is always older than 240 s, so it is recycled anyway), plus one retry on a dropped
-connection; or moving the database to a region closer to the backend (L24).
+Turning pre-ping off measured 3 round trips (611 ms vs 815 ms).
+
+**Resolved in M4 by two changes (user decisions D27, D32).**
+1. **Moved to Singapore.** The Neon project now lives in **`aws-ap-southeast-1`**, Neon's closest
+   region to India. Neon has no Mumbai, and a project's region can't be changed after creation.
+   Qdrant moved to a free Google Cloud cluster in **Sydney** (`australia-southeast1`); the free AWS
+   tier offers no Asia region.
+2. **Autocommit read sessions** (`build_read_session_factory`, the `ReadDbSession` dependency).
+   Read-only requests skip `BEGIN`/`ROLLBACK`; writes keep full transactions, and a read session
+   refuses to flush any write.
+
+| Measured from India | us-east-1 (M2) | Singapore (M4) |
+|---|---|---|
+| Database round trip | ~200–290 ms | **~55–65 ms** |
+| Read through a normal session (4 trips) | ~815 ms | 221 ms |
+| Read through a read session (2 trips) | — | **109 ms** |
+| Qdrant filtered search | ~260 ms (us-east-1) | 164 ms (Sydney) |
+
+A typical read is now about **7.5× faster** than in M2. Dropping pre-ping as well (D27 option b)
+would save one more ~60 ms trip; it isn't worth the extra retry logic at these numbers.
 
 **Scale to zero (cold starts).** On the free plan the compute always suspends after 5 minutes idle,
 and this can't be disabled. The first request after a pause therefore takes longer. That's
@@ -461,14 +477,22 @@ used by the planner), then ran `websearch_to_tsquery` (stemming, quoted phrase, 
 `ts_rank_cd` ranking, all inside a transaction that was rolled back.
 
 **Branches for testing.** The Neon free plan allows several branches per project. A branch is an
-instant copy-on-write copy of the database with its own connection string. We'll use `main` for
-development and a `test` branch for integration tests (`TEST_DATABASE_URL`), so tests can never
-wipe your development data.
+instant copy-on-write copy of the database with its own connection string. Neon now names the
+default branch **`production`**; we use it for development, and a **`test`** branch for integration
+tests (`TEST_DATABASE_URL`), so tests can never wipe development data.
+
+**Implemented in M4:**
+- Every database test runs inside a transaction that is rolled back afterwards
+  (`join_transaction_mode="create_savepoint"`), so the test branch stays empty.
+- The fixtures refuse to run if `TEST_DATABASE_URL` has the same host as `DATABASE_URL`.
+- Migrations reach the test branch through its direct endpoint (`-pooler` removed), with
+  `alembic -x target=test ...`.
 
 ### 4.13 Qdrant without Docker
 
-**Chosen (D16a, user decision 2026-11-06): the Qdrant Cloud free tier.** The app connects with
-`QdrantClient(url="https://<cluster>.<region>.aws.cloud.qdrant.io:6333", api_key=...)`, using a
+**Chosen (D16a, user decision 2026-11-06): the Qdrant Cloud free tier**, since M4 a free Google
+Cloud cluster in Sydney (D32). The app connects with
+`QdrantClient(url="https://<cluster>.<region>.<provider>.cloud.qdrant.io:6333", api_key=...)`, using a
 *Database* API key scoped to the cluster, kept in `backend/.env`. The cluster's region should be
 as close as possible to where the backend runs. Inactivity rules: suspended after 1 week unused,
 deleted after 4 weeks. Recovery: `reindex.py` (M9) rebuilds the collection from PostgreSQL.
@@ -579,14 +603,14 @@ erDiagram
         uuid kb_id FK
         string original_filename
         string stored_path
-        string file_type "pdf|docx|txt"
+        string file_type "pdf|docx|txt|md"
         int size_bytes
         string sha256 "duplicate detection per KB"
         string status "uploaded|processing|ready|failed|deleting"
         text error_message
         int page_count
         int chunk_count
-        jsonb metadata "title, author, etc."
+        jsonb metadata "front matter: document_id, version, status, amends..."
         timestamptz created_at
         timestamptz processed_at
     }
@@ -598,8 +622,9 @@ erDiagram
         text text
         int page_start
         int page_end
-        string section
+        string section "e.g. §4.2 Annual leave"
         int token_count
+        string strategy "which chunker made it"
         tsvector search_vector "generated, GIN index"
     }
     conversations {
@@ -628,6 +653,22 @@ erDiagram
 Migrations are managed with **Alembic** through Neon's direct (non-pooled) endpoint
 (`DATABASE_MIGRATION_URL`). UUID primary keys mean IDs can't be guessed or enumerated, and chunk
 IDs can double as Qdrant point IDs.
+
+**Implemented in M4** (models in `app/models/`, first migration `5fb1c162ac1c`, conventions D33):
+- **UUIDs are generated in Python**, so the app knows an id before inserting and never needs a
+  round trip to read it back.
+- **Allowed values are CHECK constraints, not ENUM types** (status, file_type, role). Adding a
+  value later is a one-line migration.
+- **Every constraint and index has a predictable name** (naming convention), so later migrations
+  can address them reliably.
+- **`ON DELETE CASCADE` on every child, plus `passive_deletes`:** deleting a user is one
+  `DELETE`, and PostgreSQL removes their knowledge bases, documents, chunks and conversations.
+- **Relationships are `lazy="raise"`:** an accidental hidden query is an error, not a silent round
+  trip.
+- **Emails are stored lowercase**, enforced by a CHECK, so two accounts can't differ only by case.
+- **`search_vector` is a generated column**, loaded only on request (`deferred`), with a GIN index.
+- **No index repeats the leading column of a unique constraint**, because that constraint's index
+  already serves those lookups. Reviewing the DDL removed 3 such duplicates.
 
 **Storage budget on the Neon free plan (1 GB per project).** A rough estimate: about 2 KB of text +
 about 2 KB of tsvector + about 1 KB of index and overhead ≈ **5 KB per chunk** → about **200,000 chunks**, which is
@@ -787,7 +828,7 @@ dev proxy target in `vite.config.js`.
 |---|---|---|
 | React (Vite dev server) | `http://localhost:5173` | `npm run dev` (in `frontend/`) |
 | FastAPI (Uvicorn) | `http://localhost:8000` (OpenAPI docs at `/docs`) | `uvicorn app.main:app --reload` (in `backend/`, venv active) |
-| Qdrant Cloud | `https://<cluster>.<region>.aws.cloud.qdrant.io:6333` | Always on (cloud.qdrant.io console). Local alternative: `scripts\start-qdrant.ps1` → `127.0.0.1:6333` |
+| Qdrant Cloud | `https://<cluster>.<region>.<provider>.cloud.qdrant.io:6333` (GCP Sydney) | Always on (cloud.qdrant.io console). Local alternative: `scripts\start-qdrant.ps1` → `127.0.0.1:6333` |
 | Neon PostgreSQL | `ep-…-pooler.<region>.aws.neon.tech:5432` | Always on (wakes automatically from scale-to-zero) |
 | Gemini | `generativelanguage.googleapis.com` | Cloud API |
 

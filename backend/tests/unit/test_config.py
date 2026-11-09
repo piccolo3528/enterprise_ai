@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from conftest import BASE_VALUES, FAKE_DB_PASSWORD, FAKE_JWT_SECRET, make_settings
 
 from app.core.config import BACKEND_DIR, ConfigError, load_settings
+from tests.helpers import BASE_VALUES, FAKE_DB_PASSWORD, FAKE_JWT_SECRET, make_settings
 
 
 def test_valid_settings_load(settings):
@@ -48,6 +48,13 @@ def test_bad_url_error_never_contains_the_password():
     assert "Sup3rS3cret" not in str(err)
     # `raise ... from None` drops pydantic's original error, whose text echoes the input.
     assert err.__cause__ is None and err.__suppress_context__
+
+
+@pytest.mark.parametrize("field", ["database_migration_url", "test_database_url"])
+def test_optional_database_urls_also_need_the_psycopg_driver(field):
+    # Neon's console copies "postgresql://"; caught at startup, not at the first query.
+    with pytest.raises(ConfigError, match=f"{field.upper()}: must start with 'postgresql"):
+        make_settings(**{field: "postgresql://u:p@ep-real-host.neon.tech/db"})
 
 
 def test_short_jwt_secret_is_rejected():

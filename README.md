@@ -4,9 +4,9 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: backend and frontend skeletons running (M2, M3): configuration, Neon
-> connection pool, and a live system-status page. Features start with the database schema (M4)
-> and authentication (M5).**
+> **Project status: foundations done (M0–M4): backend and frontend skeletons, a live
+> system-status page, and the full database schema on Neon (Singapore), versioned by Alembic.
+> User features start with authentication (M5).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -254,15 +254,24 @@ This checks the following and reports ✔/✘ for each:
 - Gemini: one small request
 - The local models
 
-### 10. Run database migrations *(M4)*
+### 10. Run database migrations *(verified in M4)*
 
 ```powershell
-alembic upgrade head
+cd enterprise-ai\backend
+.\.venv\Scripts\Activate.ps1
+alembic upgrade head                    # your development database
+alembic -x target=test upgrade head     # the Neon "test" branch (the tests also do this)
 ```
 
 Alembic applies every schema change, stored as versioned migration scripts, to your Neon database
 in order, using `DATABASE_MIGRATION_URL`. Run it after pulling new code. It is safe to run
-repeatedly: already-applied migrations are skipped.
+repeatedly: already-applied migrations are skipped. `alembic current` shows the applied version,
+and `alembic check` confirms the models and the database match.
+
+**Neon setup used by this project:** region **AWS Asia Pacific 1 (Singapore)**, the closest Neon
+region to India; a branch named **`test`** for integration tests. Neon's console copies URLs as
+`postgresql://...`, so add `+psycopg` (`postgresql+psycopg://...`). The app stops with a clear
+message if you forget.
 
 ### 11. Run the FastAPI backend *(verified in M2)*
 

@@ -28,6 +28,13 @@ def _is_placeholder(url: str) -> bool:
     return any(marker in url for marker in _PLACEHOLDER_MARKERS)
 
 
+def _require_psycopg_driver(url: str) -> None:
+    # Neon's console shows "postgresql://", which makes SQLAlchemy look for the old psycopg2
+    # driver (not installed) and fail with a confusing import error at the first query.
+    if not url.startswith("postgresql+psycopg://"):
+        raise ValueError("must start with 'postgresql+psycopg://' (selects the psycopg 3 driver)")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         # Absolute path, so it works whatever folder uvicorn/pytest is started from.
@@ -84,18 +91,16 @@ class Settings(BaseSettings):
         url = v.get_secret_value()
         if _is_placeholder(url):
             raise ValueError("still contains the .env.example placeholder; paste your Neon URL")
-        if not url.startswith("postgresql+psycopg://"):
-            raise ValueError(
-                "must start with 'postgresql+psycopg://' (selects the psycopg 3 driver)"
-            )
+        _require_psycopg_driver(url)
         return v
 
     @field_validator("database_migration_url", "test_database_url")
     @classmethod
-    def _optional_url_placeholder_is_unset(cls, v: SecretStr | None) -> SecretStr | None:
-        # These aren't needed until M4; an untouched template line simply means "not set yet".
-        if v is not None and _is_placeholder(v.get_secret_value()):
+    def _check_optional_url(cls, v: SecretStr | None) -> SecretStr | None:
+        # An untouched template line simply means "not set yet".
+        if v is None or _is_placeholder(v.get_secret_value()):
             return None
+        _require_psycopg_driver(v.get_secret_value())
         return v
 
     @field_validator("jwt_secret")
