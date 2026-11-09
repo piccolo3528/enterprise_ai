@@ -4,8 +4,9 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: backend skeleton running (M2): configuration, Neon connection pool, health
-> endpoint. Features start with the frontend skeleton (M3) and the database schema (M4).**
+> **Project status: backend and frontend skeletons running (M2, M3): configuration, Neon
+> connection pool, and a live system-status page. Features start with the database schema (M4)
+> and authentication (M5).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -283,9 +284,9 @@ uvicorn app.main:app --reload --port 8000
 - If configuration is missing or invalid, the server stops with a list of the variables to fix.
   Values are never printed.
 
-### 12. Run the React frontend *(M3)*
+### 12. Run the React frontend *(verified in M3)*
 
-In a **new** PowerShell window:
+In a **new** PowerShell window (the backend from step 11 keeps running in the first one):
 
 ```powershell
 cd enterprise-ai\frontend
@@ -293,8 +294,15 @@ npm install        # first time, and whenever package.json changes
 npm run dev
 ```
 
-Open **http://localhost:5173**. Vite forwards every `/api/...` request to the backend on port 8000,
-so the browser sees one website. That is why no API keys ever reach the frontend.
+Open **http://localhost:5173**. It opens on **System status**, a live check of Neon, Qdrant and
+the Gemini configuration with a Refresh button. Vite forwards every `/api/...` request to the
+backend on port 8000, so the browser sees one website. That is why no API keys ever reach the
+frontend.
+
+- If the backend isn't running, the page says *"Can't reach the backend. Is the FastAPI server
+  running on port 8000?"*
+- If one service is down, the page shows **Degraded** and marks which service failed.
+- Sidebar items marked **Soon** are pages that later milestones will build.
 
 ### 13. Run the tests *(backend verified in M2)*
 
@@ -305,8 +313,9 @@ pytest -m live              # live tests against the real Neon + Qdrant in backe
 ruff check app tests        # code-quality checks
 ruff format --check app tests
 
-# frontend (in frontend/, from M3)
-npm test
+# frontend (in frontend/)
+npm test                    # Vitest + Testing Library, runs in a simulated browser (jsdom)
+npm run build               # production build check
 ```
 
 From M4, database integration tests use the Neon **`test`** branch (`TEST_DATABASE_URL`) and a

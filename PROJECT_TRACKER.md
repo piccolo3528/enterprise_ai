@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-06** · Current milestone: **M2 — Backend Skeleton (COMPLETED)** · Next: **M3 — Frontend Skeleton**
+> Last updated: **2026-11-09** · Current milestone: **M3 — Frontend Skeleton (COMPLETED)** · Next: **M4 — Database Schema & Migrations**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -205,6 +205,9 @@ explain the concept back in your own words (or answer the related interview ques
 | 54 | Async I/O & thread offloading | `async` routes stay responsive; blocking clients run in threads (`asyncio.to_thread`); independent calls run concurrently (`gather`) | IN PROGRESS (M2: health checks run in parallel: ~1 s, not ~1.6 s) | ☐ | `services/health.py`, `factory.py` |
 | 55 | Observability: request IDs & error contracts | One ID ties a response, its error body and its log lines together; one stable error shape; internals never leak | COMPLETED (M2) | ☐ | `core/middleware.py`, `core/errors.py`, `core/logging.py` |
 | 56 | Latency budgets & round trips | Count network round trips per request; distance sets the price of each | IN PROGRESS (M2: 4 trips per pooled query measured; D27) | ☐ | `ARCHITECTURE.md` §4.12, `db/session.py` |
+| 57 | Dev proxy & same origin | The browser talks to one origin; Vite forwards `/api` to FastAPI, so no CORS and no secrets in the browser | COMPLETED (M3) | ☐ | `frontend/vite.config.js` |
+| 58 | Client-side error model & request cancellation | Every failure → one `ApiError`; `AbortController` stops stale responses overwriting new ones | COMPLETED (M3) | ☐ | `src/api/client.js`, `pages/SystemStatus.jsx` |
+| 59 | Component testing | Render components in a simulated DOM and assert what a user sees (Testing Library), with the API mocked | COMPLETED (M3) | ☐ | `src/**/*.test.jsx` |
 
 ---
 
@@ -272,17 +275,21 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Testing:** 26 unit tests (config, errors, health with fakes, startup warm-up) + 3 live tests; ruff clean. See §F.8.
 - **Open (your check, 10 seconds):** in the VS Code terminal, save any file under `app/` while `--reload` is running and confirm the log shows a new "Started server process". My tool runs processes without a real console, so uvicorn's Windows restart signal (Ctrl+C event) never reaches the worker. A trivial one-file FastAPI app behaves identically there, so it isn't our code.
 
-### M3 — Frontend Skeleton · `NOT STARTED`
+### M3 — Frontend Skeleton · `COMPLETED` (2026-11-09)
 - **Objective:** A React app that talks to the backend through the dev proxy.
 - **Tasks:**
-  - [ ] Vite + React (JS) + Tailwind + React Router + Axios + Lucide
-  - [ ] `vite.config.js` proxy `/api` → `localhost:8000`
-  - [ ] App shell (sidebar, top bar), base UI components (Button, Input, Spinner, EmptyState, ErrorBanner)
-  - [ ] A system-status page that calls `/api/health` (loading, success and error states)
-  - [ ] Vitest + Testing Library set up with one test
-- **Expected output:** `npm run dev` → `localhost:5173` shows live service health.
+  - [x] Vite 8 + React 19 (JS) + Tailwind 4 + React Router 8 (`react-router`; see F.7) + Axios + Lucide; written by hand, not scaffolded, so every file is understood
+  - [x] `vite.config.js` proxy `/api` → `127.0.0.1:8000` (not `localhost`: Node resolves it to IPv6 `::1` first, uvicorn listens on IPv4); `strictPort`
+  - [x] `src/api/client.js`: one Axios instance; every failure → `ApiError {status, code, message, requestId, details}`; backend error JSON passed through; proxy 502 without a body → `backend_unreachable`; timeout / network / cancelled codes
+  - [x] App shell: `AppLayout`, `Sidebar` (unbuilt pages shown as disabled **Soon** items, not placeholder links; slide-in on phones), `Topbar`; UI: Button (loading state), Input (label/hint/error wired for screen readers), Spinner, EmptyState, ErrorBanner (shows request ID), StatusBadge
+  - [x] `SystemStatus` page: loading, healthy, degraded (which service + error) and unreachable states; Refresh; `AbortController` cancels stale requests; clears the old report when a check fails
+  - [x] `NotFound` page; `/` redirects to `/status`
+  - [x] Vitest + jsdom + Testing Library: 19 tests
+- **Expected output:** `npm run dev` → `localhost:5173` shows live service health. **Achieved** (screenshots of healthy and degraded states, 2026-11-09).
 - **Dependencies:** M2.
-- **Testing:** Vitest component test; manual check with Qdrant stopped (error state shown).
+- **Testing:** see §F.8. Error states checked live: backend stopped → "Can't reach the backend"; Qdrant pointed at a dead port (`QDRANT_URL` env override) → Degraded, Qdrant card Unavailable.
+- **Bugs found by the live check and fixed (each now has a test):** (1) an old green report stayed visible under the error after a failed refresh; (2) the top bar named an unbuilt page instead of "Page not found".
+- **Open (your check):** phone layout (sidebar slide-in). Chrome wouldn't resize its maximised window during my test, so it isn't visually verified. Make the window narrow, or use DevTools device mode.
 
 ### M4 — Database Schema & Migrations · `NOT STARTED`
 - **Objective:** All tables exist in Neon, versioned by Alembic.
@@ -447,13 +454,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - Development environment + all external services verified end to end (M1, §F.8); repo on GitHub.
 - Backend skeleton (M2): validated configuration, Neon pool with `verify-full` TLS, startup
   warm-up, uniform error responses with request IDs, `GET /api/health`, `/docs`.
-- No user-facing features yet (auth, knowledge bases and documents start in M4–M7).
+- Frontend skeleton (M3): app shell, base UI components, live **System status** page through the
+  Vite proxy, uniform `ApiError` handling.
+- No user features yet (auth, knowledge bases and documents start in M4–M7).
 
 ### F.2 In progress
-- Nothing. M3 (frontend skeleton) is next.
+- Nothing. M4 (database schema & migrations) is next.
 
 ### F.3 Remaining functionality
-- Everything in M3–M17 (M18 optional).
+- Everything in M4–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -537,6 +546,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-06 | Qdrant Cloud free tier is now primary; the local binary is the alternative | D16 (local primary) | User choice (D16a) |
 | 2026-11-06 | Added `GROQ_API_KEY`, `GROQ_MODEL` to the env template (unused so far) | — | Optional fallback provider (D22) |
 | 2026-11-06 | Added `rag-documents/` (git-ignored) for user-collected test documents | — | Keep possibly non-redistributable docs out of git |
+| 2026-11-09 | **`react-router` 8** instead of `react-router-dom` | ARCHITECTURE §7 `react-router-dom` | Since v7 the DOM APIs live in `react-router`; `react-router-dom` stopped at 7.x. Same API, different import name |
 
 ### F.8 Testing results
 | Date | Milestone | Suite | Result | Notes |
@@ -559,6 +569,14 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-06 | M2 | Pool probe (scratch script) | ℹ | Warm-up 3.59 s (new connection + dialect setup). Pooled `SELECT 1` = **815 ms = 4 round trips** (pre-ping, BEGIN, SELECT, ROLLBACK); without pre-ping 611 ms. Round trip today ~204 ms (M1: ~290) → D27 |
 | 2026-11-06 | M2 | Warm-up effect | ✔ | Before Qdrant warm-up: 1st request Qdrant 808 ms, later 244 ms. After: 1st request 248 ms. DB 1st request after warm-up = same as later ones (816 ms). A request arriving *during* warm-up opens its own connection (1.68 s), explained by log timestamps |
 | 2026-11-06 | M2 | Manual: `--reload` restart | ⚠ not verifiable here | Change detected ("WatchFiles detected changes"), but the worker never restarts when started from the AI tool's shell (Windows Ctrl+C event needs a console). A trivial FastAPI app behaves identically. User to confirm in the VS Code terminal |
+| 2026-11-09 | M3 | `npm test` (Vitest) | ✔ 19 passed | `toApiError` (6: backend shape, details, proxy 5xx → unreachable, timeout, network, cancel); SystemStatus (6: loading → healthy, degraded shows failing service, error + reference + retry, **no stale green after a failed refresh**, missing Gemini key, latency format); routing/layout (4: `/` → status, unknown route, unbuilt page = not found incl. top bar, only built pages are links); Input (3: label, error + aria, hint) |
+| 2026-11-09 | M3 | `npm run build` | ✔ | 336 kB JS (110 kB gzipped), 21 kB CSS |
+| 2026-11-09 | M3 | Live in Chrome: backend + Vite | ✔ | Healthy state through the proxy (DB 1.03 s, Qdrant 763 ms); request ID preserved through the proxy; no console errors |
+| 2026-11-09 | M3 | Live: backend stopped | ✔ after fix | Vite proxy returns **HTTP 502, empty body** → "Can't reach the backend…". Bug found: the previous green report stayed visible below the error → fixed + test |
+| 2026-11-09 | M3 | Live: Qdrant unreachable (`QDRANT_URL` override) | ✔ | Degraded banner; Qdrant "Unavailable · ResponseHandlingException"; DB still healthy; startup log "Qdrant connection warm-up failed", server still started |
+| 2026-11-09 | M3 | Live: `/knowledge-bases` (unbuilt) | ✔ after fix | Not-found page; top bar showed "Knowledge bases" → fixed to "Page not found" + test |
+| 2026-11-09 | M3 | First check after 30 idle min | ℹ | DB 2.74 s (Neon had suspended; recycled connection + wake-up). One request in the backend log, so it wasn't StrictMode's double effect (my first guess, disproved by the log) |
+| 2026-11-09 | M3 | Phone layout | ⚠ not verified | Chrome didn't resize the maximised window. User to check |
 
 ### F.9 Environment facts
 Python **3.12.10** (official, per-user, `%LOCALAPPDATA%\Programs\Python\Python312`; `py -3.12`), Node v26.13.0,
@@ -569,6 +587,10 @@ transformers 5.22.1, numpy 2.5.4, google-genai 2.34.0, qdrant-client 1.20.0, SQL
 psycopg 3.3.8 (bundled libpq 18), python-dotenv 1.2.4, certifi, pytest 9.2.0, ruff 0.17.4.
 **Added in M2:** fastapi 0.162.0 (Starlette 1.10.0), uvicorn 0.54.0, pydantic 2.14.3,
 pydantic-settings 2.16.2, httpx 0.28.1.
+**Frontend (M3, `frontend/node_modules`):** react/react-dom 19.3.1, react-router 8.5.1, axios 1.21.0,
+lucide-react 1.70.0, vite 8.3.6, @vitejs/plugin-react 6.3.0, tailwindcss + @tailwindcss/vite 4.3.5,
+vitest 5.1.0, jsdom 31.0.0, @testing-library/react 16.3.3, jest-dom 7.0.1, user-event 14.6.8.
+`npm audit`: 0 vulnerabilities.
 **Model cache:** `%USERPROFILE%\.cache\huggingface` (bge-small-en-v1.5, ms-marco-MiniLM-L-6-v2).
 **Gemini free-tier limits for your project:** _to fill in from AI Studio (RPM / TPM / RPD per model)._
 **Neon project:** AWS `us-east-1`, database `neondb`, role `neondb_owner`; PG version _to confirm in M1_.
@@ -609,11 +631,29 @@ evaluation schema. Proposed changes:
   400-token chunk size, so heading-aware chunking must *merge* small sibling sections (keeping the
   section path) rather than mostly split them.
 
+### F.11 Lessons learned (per milestone)
+Full write-up with numbers, plus the interview Q&A bank with answers, lives in the Notion page
+**"Enterprise AI — Learnings & Interview Prep"** (updated after every milestone). Answers are framed
+as a personal project. Each is labelled ✅ built & measured / 📐 designed, not built / 📚 concept.
+- **M1:** distance sets a floor on latency (~200–290 ms per round trip); a new connection ≈ 5 round
+  trips; first query ~4.9 s (wake-up + dialect setup); measure before raising timeouts; embedding
+  scores bunch together (0.78 vs 0.62) while a cross-encoder separates them (9.48 vs −3.96); corpus
+  sections are tiny (median 49 tokens) → the chunker must merge; check the checker before fixing data.
+- **M2:** one pooled query = 4 round trips (D27); secrets leak through *error messages*; run
+  independent I/O concurrently; warm-up moves cost to startup but doesn't remove it; a keep-alive
+  would exhaust free compute hours; catch-all handlers run outside middleware; separate
+  environment problems from code problems (`--reload` test with a trivial app).
+- **M3:** a dev proxy makes frontend and backend one origin (no CORS, no secrets in the browser);
+  `localhost` ≠ `127.0.0.1` for Node (IPv6 first); one error type for every failure keeps pages
+  simple; cancel stale requests (`AbortController`); a status page must never show old green
+  next to a failed check; **testing in a real browser found 2 bugs the unit tests didn't**;
+  check logs before trusting a theory (StrictMode guess was wrong; Neon had gone to sleep).
+
 ### F.10 Next recommended action
-1. Confirm `uvicorn app.main:app --reload` restarts on file save in the VS Code terminal (M2 open item).
-2. Start **M3 — Frontend Skeleton** (Vite + React + Tailwind; system-status page on `/api/health`).
-3. Before M4: decide D27 (round trips per query) and, related, whether to move Neon to an Asia region (L24).
-   Create the Neon `test` branch and set `TEST_DATABASE_URL`.
+1. Your quick checks: `uvicorn --reload` restarts on save (M2), and the phone layout (M3).
+2. **Before M4 (decisions needed):** D27 (cutting round trips per query) and, related, whether to
+   move Neon to an Asia region (L24). Create the Neon **`test` branch** and set `TEST_DATABASE_URL`.
+3. Start **M4 — Database Schema & Migrations** (SQLAlchemy models, Alembic, first migration on Neon).
 4. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`; reset the Neon password (L25).
 
 ---
@@ -626,6 +666,8 @@ evaluation schema. Proposed changes:
   window, TLS `verify-full`, background warm-up, and a measured per-request round-trip budget (M2).
 - **Request tracing and a uniform error contract**: request IDs in headers, logs and error bodies (M2).
 - **Concurrent health checks** with per-check timeouts (`asyncio.gather` + `to_thread`) (M2).
+- **Same-origin dev proxy** and a **uniform client-side error model** (`ApiError` with request ID) (M3).
+- **Request cancellation and honest UI states**: loading / healthy / degraded / unreachable, never stale green (M3).
 
 ### G.2 Architectural decisions & reasoning (talking points)
 Most likely to come up: D1 (no LangChain), D7 (hybrid + RRF), D13 (threshold gate), D14
@@ -661,6 +703,9 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 23 | Your database scales to zero. What problems does that cause, and how did you handle them? | Draft below |
 | 24 | How do you run migrations safely against a managed database? | After M4 |
 | 25 | How do you make sure secrets never end up in logs or error messages? | Draft below |
+| 26 | How does your frontend talk to the backend, and why no CORS? | In Notion (M3) |
+| 27 | How do you handle API errors and loading states in React? | In Notion (M3) |
+| 28 | What bugs did browser testing find that unit tests didn't? | In Notion (M3) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

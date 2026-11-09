@@ -80,10 +80,23 @@ what*, the filesystem keeps the *originals*, and Gemini *writes* the answer.**
 | KB detail / documents | Drag-and-drop upload with progress, a document table with live processing status, delete. |
 | Chat | Streaming answers, inline citation markers, citation side panel, conversation list. |
 | Search | Hybrid search across a KB, showing matching passages without calling the LLM. |
-| Settings | Account (name, password), retrieval defaults, system status (models, service health). |
+| Settings | Account (name, password), retrieval defaults. |
+| System status *(built in M3)* | Live service health from `/api/health`: loading, healthy, degraded (which service, why) and backend-unreachable states. |
 
 API access: **Axios** for normal REST calls. **`fetch` + `ReadableStream`** for the streaming chat
 endpoint, because Axios cannot consume a streamed response body in the browser.
+
+**Error handling (M3).** One Axios instance (`src/api/client.js`) turns every failure into an
+`ApiError {status, code, message, requestId, details}`:
+- The backend's own error JSON is passed through as-is.
+- A 5xx with no body is the Vite proxy saying the backend is down (measured: HTTP 502, empty
+  body), so it maps to `backend_unreachable`.
+- Timeouts, network failures and cancelled requests each get their own code.
+
+Pages show `message` and the request ID, as "Reference: …". Requests are cancelled with an
+`AbortController` when a page unmounts or a newer request starts, so a stale response can never
+overwrite a newer one. Sidebar entries for pages that don't exist yet are shown as disabled
+**Soon** items, never as links to placeholder pages.
 
 ### 2.2 Backend layers
 
@@ -704,17 +717,18 @@ enterprise-ai/
         ├── main.jsx
         ├── App.jsx             # routes
         ├── index.css           # Tailwind
-        ├── api/                # axios client + one module per resource + streamChat.js
+        ├── api/                # client.js (axios + ApiError), health.js, … + streamChat.js
+        ├── test/setup.js       # jest-dom matchers, cleanup between tests
         ├── context/            # AuthContext
         ├── hooks/              # useDocumentsPolling, useChatStream, …
         ├── components/
-        │   ├── layout/         # Sidebar, Topbar, ProtectedRoute
-        │   ├── ui/             # Button, Input, Modal, Spinner, EmptyState, Toast
+        │   ├── layout/         # AppLayout, Sidebar, Topbar, navigation.js, ProtectedRoute
+        │   ├── ui/             # Button, Input, Spinner, EmptyState, ErrorBanner, StatusBadge, Modal, Toast
         │   ├── documents/      # UploadDropzone, DocumentTable, StatusBadge
         │   ├── chat/           # MessageList, MessageInput, ConversationList
         │   └── citations/      # CitationPanel, CitationChip
-        └── pages/              # Login, Register, Dashboard, KnowledgeBases, KnowledgeBaseDetail,
-                                # Chat, Search, Settings, NotFound
+        └── pages/              # SystemStatus, NotFound (M3); Login, Register, Dashboard,
+                                # KnowledgeBases, KnowledgeBaseDetail, Chat, Search, Settings
 ```
 
 ---
@@ -732,9 +746,11 @@ Token counting uses the embedding model's own tokenizer (no extra package).
 
 **Backend dev:** `pytest`, `httpx` (TestClient), `ruff` (lint + format).
 
-**Frontend:** `react`, `react-dom`, `react-router-dom`, `axios`, `lucide-react`, `react-markdown`
-(safe Markdown, no raw HTML), `tailwindcss` + `@tailwindcss/vite`, `vite`, `@vitejs/plugin-react`.
-Dev: `vitest` + `@testing-library/react` for a few critical components.
+**Frontend (installed in M3):** `react` 19.3, `react-dom` 19.3, `react-router` 8.5 (the DOM APIs
+moved into `react-router`; `react-router-dom` stopped at 7.x), `axios` 1.21, `lucide-react` 1.70,
+`tailwindcss` 4.3 + `@tailwindcss/vite`, `vite` 8.3, `@vitejs/plugin-react` 6.3. Later:
+`react-markdown` (safe Markdown, no raw HTML). Dev: `vitest` 5.1, `jsdom`,
+`@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event`.
 
 **Not used (deliberately):** LangChain/LlamaIndex (they hide the concepts we want to learn), Celery,
 Redis and Kubernetes (no measured need), Docker in v1 (see §4.14), TypeScript (per requirements),
