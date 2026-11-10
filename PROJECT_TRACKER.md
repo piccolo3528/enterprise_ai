@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-09** · Current milestone: **M6 — Knowledge Base Management (COMPLETED)** · Next: **M7 — Document Upload & Text Extraction**
+> Last updated: **2026-11-10** · Current milestone: **M7 — Document Upload & Text Extraction (COMPLETED)** · Next: **M8 — Chunking**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -160,10 +160,10 @@ explain the concept back in your own words (or answer the related interview ques
 | 9 | Password hashing (Argon2id) | Slow, salted, memory-hard hashing, so stolen hashes resist cracking | COMPLETED (M5: ~108 ms/verify measured; rehash on login; no timing leak for unknown emails) | ☐ | `app/core/security.py`, `services/auth.py` |
 | 10 | JWT & cookie sessions | Signed, stateless token in an httpOnly cookie; XSS can't read it | COMPLETED (M5: proven in Chrome: `document.cookie` empty, yet `/me` → 200) | ☐ | `app/core/security.py`, `api/deps.py`, `routes/auth.py` |
 | 11 | Authorization / tenant isolation | Every query scoped to the owner; vector search filtered by an owned `kb_id` | IN PROGRESS (M6: SQL side done: owner in every statement, identical 404s, cross-user test matrix; Qdrant filter in M9) | ☐ | `services/knowledge_bases.py`, `api/deps.py`, `vector_store.py` |
-| 12 | Secure file upload | Allow-list, magic bytes, size limits, server-generated paths | NOT STARTED | ☐ | `routes/documents.py`, `storage.py` |
-| 13 | Text extraction | Getting clean text + page structure out of PDF/DOCX/TXT | NOT STARTED | ☐ | `ingestion/extractors.py` |
-| 14 | Text cleaning | Normalizing whitespace and Unicode, de-hyphenation, removing noise | NOT STARTED | ☐ | `ingestion/cleaning.py` |
-| 15 | Background processing | Return 202 fast; process later; track status in the DB | NOT STARTED | ☐ | `ingestion/pipeline.py` |
+| 12 | Secure file upload | Allow-list, magic bytes, size limits, server-generated paths | COMPLETED (M7: size checked before the body is read; zip-bomb guard; nothing left on disk after a rejection) | ☐ | `routes/documents.py`, `storage.py`, `ingestion/validation.py` |
+| 13 | Text extraction | Getting clean text + page structure out of PDF/DOCX/TXT | COMPLETED (M7: PDF per page, DOCX headings + tables in order, Markdown headings + front matter, TXT encodings; all 22 corpus docs in 0.13 s) | ☐ | `ingestion/extractors.py` |
+| 14 | Text cleaning | Normalizing whitespace and Unicode, de-hyphenation, removing noise | COMPLETED (M7: NFC not NFKC, ligatures, invisible characters, hyphenated line breaks) | ☐ | `ingestion/cleaning.py` |
+| 15 | Background processing | Return 202 fast; process later; track status in the DB | COMPLETED (M7: conditional status updates, no DB connection held while parsing, startup recovery, retry) | ☐ | `ingestion/pipeline.py` |
 | 16 | Fixed-size chunking | Split every N units; simple but breaks sentences | NOT STARTED | ☐ | `ingestion/chunking.py` |
 | 17 | Overlapping chunks | Windows share O units so boundary facts survive whole | NOT STARTED | ☐ | `ingestion/chunking.py` |
 | 18 | Recursive chunking | Split on paragraph → line → sentence → word, following the text's structure | NOT STARTED | ☐ | `ingestion/chunking.py` |
@@ -211,6 +211,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 60 | Check-and-act in one statement (no TOCTOU) | Put the ownership condition inside the `UPDATE`/`DELETE` itself instead of "read, check, then write": one round trip, and nothing can change in between | COMPLETED (M6) | ☐ | `services/knowledge_bases.py` |
 | 61 | Expression (functional) unique index | `UNIQUE (owner_id, lower(name))`: uniqueness on a computed value, which a plain UNIQUE constraint can't express | COMPLETED (M6: migration `e0b6121b0338`) | ☐ | `models/knowledge_base.py`, `alembic/versions/` |
 | 62 | Partial updates (PATCH semantics) | Only fields actually sent change; "absent" ≠ "null" (`model_fields_set`) | COMPLETED (M6) | ☐ | `schemas/knowledge_base.py` |
+| 64 | Character encodings | Bytes → text needs the right encoding; BOM, strict UTF-8, then a measured Windows-1252 rule before statistical detection | COMPLETED (M7) | ☐ | `ingestion/extractors.py` (`decode_text`) |
+| 65 | Polling without pile-ups | A `setTimeout` chain (next request only after the last answer) that stops when nothing is pending | COMPLETED (M7) | ☐ | `hooks/useDocuments.js` |
 | 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
 ---
@@ -337,17 +339,19 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M5.
 - **Testing:** 25 unit + 12 live API tests (incl. the cross-user matrix) + 17 frontend tests; full manual flow with two accounts in Chrome.
 
-### M7 — Document Upload & Text Extraction · `NOT STARTED`
-- **Objective:** Upload PDF/DOCX/TXT, extract + clean text with page/section structure, track status.
+### M7 — Document Upload & Text Extraction · `COMPLETED` (2026-11-10)
+- **Objective:** Upload PDF/DOCX/TXT/MD, extract + clean text with page/section structure, track status.
 - **Tasks:**
-  - [ ] Upload validation (extension + magic bytes + size + PDF page cap + DOCX zip-bomb guard)
-  - [ ] Storage service (server-generated paths under `UPLOAD_DIR`); SHA-256 duplicate detection per KB
-  - [ ] Extractors: PDF per page (PyMuPDF), DOCX paragraphs + headings, TXT with encoding detection; cleaning
-  - [ ] Status lifecycle, background task, startup recovery of stuck jobs, retry endpoint
-  - [ ] Frontend: drag-and-drop upload with progress, document table, status badges, polling, error messages
-- **Expected output:** sample docs go `processing → ready`; corrupt/empty/scanned files show `failed` with a reason.
+  - [x] Upload route reads the multipart body itself, so the order is: session (401) → KB ownership (404) → `Content-Length` (411/413) → body (D41). Allow-list (`pdf docx txt md`) + magic bytes (`%PDF-`; ZIP with `word/document.xml`, no macros; no NUL bytes in text) + empty-file check + DOCX zip-bomb guard (declared unpacked size ≤ 200 MB, ≤ 5,000 entries) + PDF page cap (1,000)
+  - [x] `services/storage.py`: `{UPLOAD_DIR}/{kb_id}/{document_id}.{ext}`, written to a `.part` name while counting bytes and hashing (SHA-256 in the same pass), checks, INSERT (duplicate → 409 via the unique index), rename, COMMIT; any failure removes the file. The user's filename is display data only (path parts and control characters stripped)
+  - [x] Extractors into one representation (`Block(text, page, headings)`): PDF per page via text blocks (PyMuPDF 1.28, D40); DOCX walks the body in order, `Heading N` styles → heading path, tables → `a | b` rows; Markdown ATX headings (ignoring code fences) + YAML front matter (`safe_load`, allow-listed keys, values normalised, unknown status dropped); TXT/MD decoding per D42. Cleaning: NFC, ligatures, invisible characters, odd spaces, control characters, hyphenated line breaks, whitespace
+  - [x] Background job (`pipeline.py`, D44): `uploaded → processing → ready | failed`, conditional UPDATEs, no DB connection held while parsing, every failure a readable `error_message` (library text only in the log). Startup recovery marks interrupted jobs failed (only documents created before startup). `POST /documents/{id}/retry` (failed only; 409 otherwise)
+  - [x] `GET /knowledge-bases/{id}/documents` (one LEFT JOIN query: empty KB vs not-yours), `DELETE /documents/{id}` (row first, then file); deleting a KB also removes its upload folder
+  - [x] Frontend: drop zone (drag-and-drop or click/keyboard; browser pre-checks; sequential uploads with progress; per-file errors), document table (status badges, front-matter id/version/status, failure reason, Retry, Delete with confirmation), polling every 2 s while anything is pending (D43)
+  - [ ] Typed-name confirmation when deleting a KB with documents: still not added (D39 kept; the dialog states the counts)
+- **Expected output:** sample docs go `processing → ready`; corrupt/empty/scanned files show `failed` with a reason. **Achieved** in tests and in Chrome (§F.8).
 - **Dependencies:** M6.
-- **Testing:** extractor unit tests with fixtures (normal, empty, corrupt, encrypted, non-UTF-8, fake extension); upload integration (413, 415).
+- **Testing:** 63 new unit tests (validation, storage, cleaning, extraction on generated files, route guards) + 21 live API tests + 10 frontend tests; Chrome run with real converted documents.
 
 ### M8 — Chunking · `NOT STARTED`
 - **Objective:** Three chunking strategies with token-aware sizing and page metadata.
@@ -477,13 +481,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - Authentication (M5): register, sign in, sign out, protected pages; Argon2id + httpOnly JWT cookie.
 - Knowledge bases (M6): create, list, view, rename, delete, private per user (cross-user access is
   a 404 indistinguishable from "missing"); dashboard with totals.
-- Next user feature: document upload (M7).
+- Documents (M7): upload PDF/DOCX/MD/TXT with validation, background extraction with status,
+  retry, delete; Markdown front matter kept as metadata.
+- Next: chunking (M8), then embeddings (M9).
 
 ### F.2 In progress
-- Nothing. M7 (document upload & text extraction) is next.
+- Nothing. M8 (chunking) is next.
 
 ### F.3 Remaining functionality
-- Everything in M7–M17 (M18 optional).
+- Everything in M8–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -508,7 +514,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L13 | Corporate proxy may intercept TLS (HF, Neon, Gemini) | Downloads/connections fail | TCP checks passed (§B.4); full TLS checks in M1 |
 | L14 | Scanned PDFs (no text layer) | Can't be processed | `failed: no extractable text (OCR not supported)` |
 | L15 | DOCX has no page numbers | Citations show section, not page | Cite heading/section + paragraph range |
-| L16 | In-process background tasks | Jobs lost on restart | Startup recovery + retry endpoint; queue upgrade documented (no Redis/Celery in v1) |
+| L16 | In-process background tasks | Jobs lost on restart | **Built (M7):** startup recovery marks them failed with "please retry" + retry endpoint; queue upgrade documented (no Redis/Celery in v1). Small window: a *retry* clicked in the first seconds after a restart can be caught by recovery (uploads can't: only documents created before startup are touched) |
 | L17 | No transactions across Neon ↔ Qdrant | Possible orphans on crash | Ordered writes/deletes; join to PostgreSQL ignores orphans; `reindex.py` |
 | L18 | PostgreSQL `ts_rank` ≠ BM25 | Slightly weaker keyword ranking | RRF depends on ranks only; revisit if eval shows a need |
 | L19 | Single-owner KBs; no sharing/roles | Not collaborative | v2 scope |
@@ -521,6 +527,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L26 | **No sign-in rate limiting yet** | Online password guessing is slowed only by Argon2 (~0.1 s per try) | Planned with the per-user limiter (`core/rate_limit.py`, M16): limit failed sign-ins per email and per IP |
 | L28 | No cap on knowledge bases per user and no paging of the KB list; counts are computed per row on every list | Fine for tens of KBs; a user with thousands would get a slow, large list | Per-user limits with the rate limiter (M16); paging fields can be added to `{"items": …}` without breaking clients; denormalised counters if counting ever shows up in timings |
 | L29 | **Sessions end silently after `JWT_EXPIRE_MINUTES` (60)**, with no sliding refresh (observed in M6's Chrome test: a reload sent the user to sign-in mid-task) | Whatever is open in a form is lost when the session ends | After signing in, the user returns to the page they were on; a refresh token / sliding session is an M16 option (ties in with L27) |
+| L30 | De-hyphenation joins any lower-case word split by "-" at a line end | A real compound split there ("well-\nknown") loses its hyphen ("wellknown") | Only applied across line breaks, only lower-case on both sides; keyword search is barely affected |
+| L31 | PDF text order is PyMuPDF's block order; PDF tables become plain text; no OCR (L14) | Multi-column or complex layouts can interleave; table cells lose their grid | Fine for policy-style PDFs (verified on a generated 6-page policy); `pymupdf4llm` (PyMuPDF 2.x) could add layout/table analysis later, at the cost of the onnxruntime dependency (D40) |
+| L32 | DOCX: only built-in `Heading N` styles count as headings; headers/footers, footnotes, comments and text boxes aren't extracted | Custom-styled headings give no section path; footnote text is missing | Documented; most policy templates use the built-in styles |
+| L33 | Documents marked `ready` in M7 have no chunks yet | After M8, they'd be "ready" but unsearchable | M8 extends the same job; existing documents are reprocessed (planned in M8) |
+| L34 | **Processing time is dominated by the network, not parsing** | Measured in Chrome on 2026-11-10: documents took 6.6–25.7 s to become ready while parsing takes ~0.1 s; at the same time google.com took 11.7 s and a new Neon connection 9.6 s (normally 1.35 s) | The job needs only two short transactions; connections are pooled; the UI polls and shows "Processing" honestly. Re-measure on a healthy network |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -562,6 +573,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D36 | 2026-11-09 | **Authorization inside the statement**: every KB query/UPDATE/DELETE includes `owner_id = :caller`; no separate ownership read; malformed ids are 404 too; `user_id` is the first dependency | One round trip instead of two; no time-of-check/time-of-use gap; byte-identical 404s never reveal that another user's id exists | `get_owned_kb` loaded first, then act (2 trips, TOCTOU gap); 403 for others' KBs (leaks existence) | Accepted (M6) |
 | D37 | 2026-11-09 | KB responses always carry `document_count` and `conversation_count`, as correlated subqueries in the same statement, including `UPDATE … RETURNING` | The UI needs the counts everywhere; no extra query; both are index lookups | Separate count queries; denormalised counter columns (premature) | Accepted (M6) |
 | D38 | 2026-11-09 | Dashboard totals are summed from the KB list response; no `/api/dashboard` endpoint yet | One request already has every number; no duplicate SQL | A stats endpoint (revisit if the dashboard needs data the list lacks, e.g. recent questions in M13) | Accepted (M6) |
+| D40 | 2026-11-10 | **PyMuPDF pinned to 1.x** (`>=1.28,<2`) | PyMuPDF 2.1 installs `onnxruntime`, `pymupdf4llm` and `pymupdf_layout` (an ML layout stack) we don't use; 1.28.2 has zero dependencies and the same API | PyMuPDF 2.x; `pypdf` (BSD, lighter, weaker extraction; the AGPL alternative from L20) | Accepted (M7) |
+| D41 | 2026-11-10 | **Upload route parses the multipart body itself** (no `UploadFile` parameter) | FastAPI reads declared form/file parameters *before* dependencies, so a signed-out caller could make the server receive a whole upload first. Now: 401 → 404 (ownership) → 411/413 (`Content-Length`) → body | `UploadFile` parameter + checks afterwards | Accepted (M7) |
+| D42 | 2026-11-10 | **Text decoding order:** BOM → strict UTF-8 → Windows-1252 if ≤ 30% non-ASCII → charset-normalizer | Measured: charset-normalizer guessed cp1257/cp852/cp1250 for short cp1252 texts ("naïve" → "naļve"); Western prose is 2–5% non-ASCII, Cyrillic-as-cp1252 93% | Detection first; UTF-8 only (rejects legacy files) | Accepted (M7) |
+| D43 | 2026-11-10 | Frontend polls the document list every 2 s with a `setTimeout` chain, only while something is queued or processing | No overlapping requests; stops by itself; one request covers all documents | `setInterval`; per-document polling; SSE/WebSocket (more machinery than M7 needs) | Accepted (M7) |
+| D44 | 2026-11-10 | Background job rules: conditional status UPDATEs; no DB connection held while parsing; never raises; "ready" in M7 = text extracted and checked (extracted text is not stored; M8 chunks inside the same job) | Deletes/retries during processing are safe; the small pool isn't blocked by CPU work; no orphaned "processing" rows | Store extracted text in a new table (duplicates what chunks will hold) | Accepted (M7) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -629,6 +645,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-09 | M6 | `npm run build` | ✔ | 364 kB JS (117 kB gzipped), 27 kB CSS |
 | 2026-11-09 | M6 | Manual in Chrome (user's running servers), two accounts | ✔ | Register → empty dashboard; create from the dashboard (`"  HR   Policies "` saved as `HR Policies`) → detail page; focus starts in Name; `hr policies` → 409 under the field; rename from the card in place (focus back on Edit); `document.cookie` empty. **As Bob:** Alice's KB URL → "Knowledge base not found"; GET/PATCH/DELETE on her id return the same status + body as a random id; his list empty; he may create his own "HR Policies"; NUL byte → 422. **As Alice again:** KB unchanged; delete from the detail page → list with notice; after a reload the notice isn't repeated; dashboard totals right; no console errors. List call through the proxy: **123–193 ms** (median ~140). Test accounts deleted afterwards (cascade removed their KBs) |
 | 2026-11-09 | M6 | Found in Chrome | ✔ fixed | Field messages read "Value error, Name contains…" (pydantic's prefix for custom validators; M5's "Enter your name" too) → stripped in `core/errors.py`, unit test added, confirmed on the running server |
+| 2026-11-10 | M7 | PyMuPDF 2.1 install inspected | ℹ changed | It pulled `onnxruntime`, `pymupdf4llm`, `pymupdf_layout`; uninstalled and pinned 1.28.2 (no dependencies); `pip check` clean (D40) |
+| 2026-11-10 | M7 | `pytest` (unit) | ✔ 140 passed | +63: filenames (path traversal, Windows paths, control chars, length), extension allow-list, magic bytes (fake PDF, PDF-as-DOCX, legacy .doc, PNG-as-TXT, non-Word ZIP), **zip bomb** (< 1 MB → 300 MB declared) refused, empty file, storage (hash while saving, size limit leaves nothing, no path escape), 11 cleaning cases, PDF per page + blank page skipped, scanned PDF → OCR message, encrypted PDF, damaged PDF/DOCX, DOCX headings + table order, TXT in UTF-8/BOM/UTF-16/cp1252 + Cyrillic cp1251, Markdown front matter + heading paths + code fence, YAML `!!python/object` refused, route guards (401, malformed id 404), startup recovery runs after warm-up |
+| 2026-11-10 | M7 | Encoding detection measured | ✔ fixed | charset-normalizer picked cp1257 / cp852 / cp1250 for three short cp1252 samples (garbling accents and curly quotes) → D42; first threshold (20%) failed on an accent-dense sentence (21%) → 30% with the measured spread recorded in code |
+| 2026-11-10 | M7 | Real corpus through the extractor | ✔ | All 22 Nexora policies: 16 front-matter keys each, versions/statuses right (2 superseded), heading paths 3 deep, 0.13 s total; no U+FFFD anywhere (a "�" in the console was the Windows console failing to print an en dash, verified as U+2013) |
+| 2026-11-10 | M7 | `pytest -m live` (Neon test branch) | ✔ 60 passed | +21 documents API: Markdown 202 then ready with front matter, file under a server name; PDF/DOCX/TXT(cp1252) ready (PDF page count); scanned/encrypted/blank → failed with reasons; retry (failed only, 409 otherwise); exe, fake PDF, legacy .doc, zip bomb, empty, > MAX_UPLOAD_MB refused **with nothing left on disk**; no file field 422; duplicate 409 (other KB fine); delete removes row + file; KB delete removes its folder; **cross-user**: upload/list/delete/retry on Alice's KB/document = same 404 as random ids, Bob's upload never reaches the disk; restart recovery (2 interrupted → failed, ready and post-startup uploads untouched); job for a deleted document stops quietly |
+| 2026-11-10 | M7 | `npm test` | ✔ 60 passed | +10: empty KB invites upload, table shows status/front matter/failure reason, header count follows the list, polling stops when nothing is pending, upload via file input + progress, drag-and-drop, browser pre-checks (wrong type, > 20 MB) without uploading, server 409 shown at the file, retry, delete with Cancel focused, list error + retry. Two timing-sensitive assertions fixed (spinner label duplicated "Processing"; count updated one render later) |
+| 2026-11-10 | M7 | `npm run build` | ✔ | 375 kB JS (119 kB gzipped), 28 kB CSS |
+| 2026-11-10 | M7 | Manual in Chrome (user's servers), throwaway account | ✔ partly | Uploaded 5 files at once: the real NX-HR-002 v3.0 Markdown → **ready** with `NX-HR-002 v3.0 · current`; the same policy as a generated 6-page PDF → **ready, 6 pages**; as DOCX → **ready**; a text-less "scanned" PDF → **failed** with the OCR message + Retry button; an `.exe` renamed `invoice.pdf` → **refused at upload** ("This file isn't a PDF…"), never listed or stored. Files on disk under server names only (4 files, no `.part` leftovers). Duplicate/retry/delete clicks **not completed in Chrome**: the browser extension lost the tab three times while the network was slow (covered by the live API tests). The user's own signed-in session was signed out first and their data not touched; test account, its KB and upload folder deleted afterwards |
+| 2026-11-10 | M7 | Slow processing in Chrome | ℹ explained (network) | Documents took 6.6–25.7 s to become ready; `/api/health` 6–11 s with DB 7.7 s. Measured outside the app: google.com 11.7 s, GitHub TCP connect 11.4 s + TLS 3.8 s, new Neon connection 9.6 s but warm round trips 56–149 ms → the laptop's network was congested, not the code (parsing ~0.1 s). Recorded as L34 |
 | 2026-11-09 | M6 | Observed in Chrome: signed out mid-test | ℹ explained | `/api/auth/me` said "Please sign in" (no cookie sent, not a bad token). Database timestamps put the last sign-in about an hour earlier, so the cookie's `Max-Age=3600` had passed and the browser dropped it; the app correctly went to sign-in and back to the same page afterwards. Recorded as L29 |
 | 2026-11-09 | M4 | D27 probe (scratch script) | ✔ | Warm round trip 65 ms; read via normal session **221 ms** (BEGIN+SELECT+ROLLBACK+pre-ping) vs read session **109 ms** (pre-ping+SELECT): kept. vs M2 us-east-1 ≈ 815 ms → **~7.5× faster** |
 
@@ -654,6 +679,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **Added in M4:** alembic 1.20.1.
 **Added in M5:** argon2-cffi 25.1.0, PyJWT 2.15.1, email-validator 2.3.0.
 **M6:** no new dependencies (backend or frontend). Neon `production` and `test` are at migration `e0b6121b0338`.
+**Added in M7:** pymupdf 1.28.2 (pinned < 2, D40), python-docx 1.2.0 (lxml 6.1.3), python-multipart 0.0.33; charset-normalizer 3.5.2 and PyYAML 6.0.3 now declared directly. Frontend: none.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -724,11 +750,33 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   was never sent; a service's `rollback()` undid the test's own setup); browser testing again found
   what tests didn't (pydantic's "Value error," prefix); two `role="status"` elements made a test
   flaky; a sudden sign-out was the 60-minute session ending: check timestamps before suspecting code.
+- **M7:** check what a dependency installs (PyMuPDF 2.x brought an ML runtime: pinned 1.x); a
+  framework's convenience can read a whole upload before auth runs (parse the body yourself);
+  count and hash in one pass, write to a temporary name, and every rejection must leave nothing on
+  disk; never trust the extension (magic bytes, zip-bomb sizes, NUL bytes); measure encoding
+  detection: it failed on short Western text, so a simple explicit rule went first; parse without
+  holding a database connection; conditional status updates make deletes and retries safe; a
+  "slow app" was a congested network: time something unrelated (google.com) before profiling code.
 
 ### F.10 Next recommended action
-1. Start **M7 — Document Upload & Text Extraction** (upload validation, storage, extractors incl. Markdown front matter, status lifecycle, upload UI).
+1. Start **M8 — Chunking** (fixed, overlap, recursive, heading-aware; token counts with the embedding tokenizer; page/section spans; batched inserts; chunk inspector; reprocess M7 documents, L33).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
+
+### F.10b Target (set by the user, 2026-11-10)
+**Finish M7–M17 by Sunday 15 November 2026**, at the user's own pace (no external deadline). That
+is ~14–15 sessions of ~3 h in 6 days, so it's a stretch target; the "Understood?" checks still
+count. If Gemini's free daily quota runs out, Groq (D22, key verified in M4) is the fallback,
+wired in behind the LLM provider interface in M12.
+
+| Day | Planned milestones |
+|---|---|
+| Tue 10 Nov | M7 Document upload & extraction |
+| Wed 11 Nov | M8 Chunking · M9 Embeddings & Qdrant |
+| Thu 12 Nov | M10 Retrieval & search UI · M11 Evaluation v1 |
+| Fri 13 Nov | M12 Core RAG + chat UI |
+| Sat 14 Nov | M13 Streaming & memory · M14 Advanced RAG |
+| Sun 15 Nov | M15 Evaluation v2 · M16 Hardening · M17 Docs |
 
 ---
 
@@ -746,6 +794,7 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
 - **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
 - **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
 - **Authentication**: Argon2id with no account-enumeration leaks, JWT in an httpOnly/Secure/SameSite=Strict cookie, route guards, session-expiry handling (M5).
+- **Secure document ingestion**: upload checks before the body is read, magic bytes, zip-bomb guard, server-side names, hash-while-saving, background processing with a safe status lifecycle, and extraction from PDF/DOCX/Markdown/TXT with measured encoding handling (M7).
 - **Multi-tenant authorization**: ownership in every SQL statement, identical 404s for "missing" and "not yours", a cross-user test matrix; case-insensitive uniqueness via an expression index; PATCH semantics; accessible dialogs (M6).
 
 ### G.2 Architectural decisions & reasoning (talking points)
@@ -798,6 +847,11 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 39 | PATCH vs PUT: how do you tell "not sent" from "set to null"? | In Notion (M6) |
 | 40 | How did you test tenant isolation? | In Notion (M6) |
 | 41 | Two retrieved passages conflict. Which one wins? | In Notion (📐 designed, not built: version-aware retrieval S4, M14) |
+| 42 | How do you make file uploads safe? | In Notion (M7) |
+| 43 | How does your background processing work, and what happens if the server restarts? | In Notion (M7) |
+| 44 | How do you get text out of PDFs and Word files, and what can go wrong? | In Notion (M7) |
+| 45 | How do you handle text files in unknown encodings? | In Notion (M7) |
+| 46 | The app got slow. How did you find out why? | In Notion (M7) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

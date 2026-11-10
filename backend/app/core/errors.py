@@ -48,6 +48,28 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class LengthRequiredError(AppError):
+    status_code = 411
+    code = "length_required"
+
+
+class PayloadTooLargeError(AppError):
+    status_code = 413
+    code = "payload_too_large"
+
+
+class UnsupportedFileError(AppError):
+    """The file isn't one of the allowed types, or its content doesn't match its extension."""
+
+    status_code = 415
+    code = "unsupported_file"
+
+
+class InvalidFileError(AppError):
+    status_code = 422
+    code = "invalid_file"
+
+
 class ServiceUnavailableError(AppError):
     status_code = 503
     code = "service_unavailable"

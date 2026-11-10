@@ -4,9 +4,9 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M6 done: backend and frontend skeletons, the database schema on Neon
-> (Singapore), accounts (register, sign in, sign out), and knowledge bases (create, rename,
-> delete, strictly private per user) with a dashboard. Next: document upload (M7).**
+> **Project status: M0–M7 done: backend and frontend skeletons, the database schema on Neon
+> (Singapore), accounts, private knowledge bases with a dashboard, and document upload with
+> background text extraction (PDF, DOCX, Markdown, TXT). Next: chunking (M8).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -16,7 +16,7 @@ this in your documents" instead of a made-up answer.
 ## Features (planned)
 
 - Accounts, with private knowledge bases per user
-- Upload PDF, DOCX and TXT files, with live processing status
+- Upload PDF, DOCX, Markdown and TXT files, with live processing status
 - Natural-language Q&A with streamed answers and clickable citations
 - Follow-up questions that understand conversation context
 - Hybrid search (semantic + keyword) across a knowledge base
@@ -309,8 +309,11 @@ npm run dev        # `npm start` does the same
 Open **http://localhost:5173**. The first time, click **Create an account** (name, email, and a
 password of at least 8 characters); after that, **Sign in**. You land on the **Dashboard**
 (totals and recently changed knowledge bases). **Knowledge bases** lets you create, rename and
-delete them; names are unique per user, ignoring case. **System status** is a live check of Neon,
-Qdrant and the Gemini configuration. Your session lasts
+delete them; names are unique per user, ignoring case. Open a knowledge base to **add documents**
+(drag and drop, or choose files: PDF, .docx, .md or .txt, up to `MAX_UPLOAD_MB` = 20 MB each).
+Each one shows *Queued → Processing → Ready*, or *Failed* with the reason (e.g. a scanned PDF with
+no text layer) and a **Retry** button. Uploaded files are stored under `backend/storage/uploads/`
+(git-ignored). **System status** is a live check of Neon, Qdrant and the Gemini configuration. Your session lasts
 `JWT_EXPIRE_MINUTES` (60 by default); **Sign out** is in the top bar. Vite forwards every `/api/...` request to the
 backend on port 8000, so the browser sees one website. That is why no API keys ever reach the
 frontend.
@@ -322,7 +325,7 @@ frontend.
 - Opening another user's knowledge base (or a deleted one) shows *"Knowledge base not found"*:
   the server answers 404 either way, so it never confirms that someone else's id exists.
 
-### 13. Run the tests *(verified; M6: 77 unit + 39 live backend, 50 frontend)*
+### 13. Run the tests *(verified; M7: 140 unit + 60 live backend, 60 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)

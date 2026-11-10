@@ -1,7 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M6 (2026-11-09).** Parts labelled
-> "implemented in M2" … "M6" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M7 (2026-11-10).** Parts labelled
+> "implemented in M2" … "M7" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
@@ -404,12 +404,52 @@ revoked before they expire (L27).
 - Documents are parsed and never executed. PyMuPDF does not run PDF JavaScript, and DOCX macros
   cannot exist in `.docx` (that would be `.docm`, which is rejected).
 
+**Implemented in M7** (`api/routes/documents.py`, `services/documents.py`, `services/storage.py`,
+`services/ingestion/validation.py`):
+
+| Step | What happens | Answer on failure |
+|---|---|---|
+| 1. Session cookie | `CurrentUserId` (no DB query) | 401 |
+| 2. Ownership | `SELECT id FROM knowledge_bases WHERE id AND owner_id`, then the transaction ends so no connection waits on the upload | 404 (same as missing) |
+| 3. Size, before reading | `Content-Length` must exist and be ≤ `MAX_UPLOAD_MB` + 64 KB of multipart overhead | 411 / 413 |
+| 4. Read the body | The route parses the multipart form itself (D41): FastAPI would otherwise parse an `UploadFile` parameter *before* steps 1–3 | 422 if there's no `file` field |
+| 5. Type | Extension allow-list on the cleaned filename (path parts and control characters stripped) | 415 |
+| 6. Save | To `{kb_id}/.{doc_id}.{ext}.part`, counting bytes (413 if the count passes the limit, whatever the header said) and computing SHA-256 in the same pass | 413 |
+| 7. Content | Empty → 422. PDF: `%PDF-` in the first 1 KB. DOCX: a ZIP with `word/document.xml`, no `vbaProject.bin`, declared unpacked size ≤ 200 MB and ≤ 5,000 entries (zip bomb). TXT/MD: no NUL bytes | 415 / 422 |
+| 8. Record | INSERT the document + touch the KB's `updated_at` (re-checking ownership); the unique index `(kb_id, sha256)` catches duplicates | 409 |
+| 9. Keep | Rename `.part` → `{kb_id}/{doc_id}.{ext}`, COMMIT; 202 Accepted | any failure deletes the file |
+
+A rejected upload never leaves a file or a row behind (tested for every rejection).
 ### 4.10 Background processing
 
 - v1 uses FastAPI `BackgroundTasks` (in-process). The status lives in PostgreSQL, so the UI simply polls.
 - Limitation: if the server restarts mid-job, the job is lost. On startup, documents stuck in
   `processing` are marked `failed` with "interrupted, please retry", and a **retry** endpoint
   re-queues them.
+
+**Implemented in M7** (`services/ingestion/pipeline.py`, `extractors.py`, `cleaning.py`):
+- **Lifecycle:** `uploaded → processing → ready | failed`, and `failed → uploaded` on retry. Every
+  change is a conditional UPDATE (`… WHERE status = 'processing'`), so a document deleted or
+  retried mid-job is never overwritten, and a job for a deleted document stops quietly.
+- **No connection held while parsing:** claim (one short transaction) → extract with no DB
+  connection → finish (one short transaction). The pool has only 5+5 connections.
+- **The job never raises.** `ExtractionError` messages are written for users ("This PDF is
+  password-protected…", "No text could be found… would need OCR"); anything unexpected gets a
+  generic message, and the traceback goes to the log only.
+- **Startup recovery** runs after the database warm-up and touches only documents created
+  before this server started, so a fresh upload in the first seconds isn't caught.
+- **Extraction → one representation:** `Block(text, page, headings)`. PDF: PyMuPDF text blocks per
+  page, wrapped lines joined into paragraphs, 1,000-page cap. DOCX: body walked in order,
+  `Heading N` styles build the heading path, tables become `a | b` rows. Markdown: ATX headings
+  outside code fences; YAML front matter via `safe_load`, allow-listed keys, values normalised to
+  text, unknown statuses dropped (§4.15 S2). TXT/MD decoding: BOM → UTF-8 → Windows-1252 if
+  ≤ 30% non-ASCII → charset-normalizer (D42, chosen after detection was measured to fail on short
+  Western text).
+- **Cleaning:** NFC (not NFKC, which would rewrite "½" and "²"), ligatures, invisible and
+  odd-space characters, control characters, words hyphenated across line breaks, whitespace.
+- **"ready" in M7** means the text was extracted and checked; M8 adds chunking to this same job.
+- **Frontend:** the document list is polled every 2 s with a `setTimeout` chain, only while a
+  document is queued or processing (D43).
 - Upgrade path, documented but not built: a real queue such as Celery/RQ with Redis, or arq.
   Interview talking point: *why didn't you start with Celery?* It would add a broker, a worker
   process and operational complexity before we have measured any need.
@@ -830,8 +870,8 @@ Latest versions seen on PyPI on 2026-11-05 are noted for reference.
 
 **Backend runtime:** `fastapi` (0.162), `uvicorn[standard]`, `pydantic-settings` (2.16),
 `sqlalchemy` (2.1), `psycopg[binary]` (3.3), `alembic` (1.20), `argon2-cffi`, `pyjwt`,
-`python-multipart` (uploads), `pymupdf`, `python-docx` (1.2), `charset-normalizer` (TXT encoding
-fallback), `sentence-transformers` (6.2), `torch` **CPU-only wheel** (avoids a multi-GB CUDA
+`python-multipart` (uploads), `pymupdf` (**pinned < 2**: 2.x adds onnxruntime + layout extras, D40), `python-docx` (1.2), `charset-normalizer` (TXT encoding
+fallback, D42), `sentence-transformers` (6.2), `torch` **CPU-only wheel** (avoids a multi-GB CUDA
 download on a machine without a GPU), `qdrant-client` (1.20), `google-genai` (2.34).
 Token counting uses the embedding model's own tokenizer (no extra package).
 

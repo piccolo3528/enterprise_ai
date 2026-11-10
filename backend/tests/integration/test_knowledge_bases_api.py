@@ -16,9 +16,9 @@ from sqlalchemy import func, select
 
 from app.api.deps import get_db, get_read_db
 from app.core.config import load_settings
-from app.core.security import SESSION_COOKIE, create_access_token
 from app.factory import create_app
 from app.models import Conversation, Document, KnowledgeBase, Message, User
+from tests.helpers import act_as, save
 
 pytestmark = pytest.mark.live
 
@@ -34,39 +34,6 @@ def client(db):
     with TestClient(app, base_url="https://testserver") as c:
         c.secret = settings.jwt_secret.get_secret_value()
         yield c
-
-
-def save(db, *rows):
-    """Add rows and commit. In these tests a commit only releases a SAVEPOINT (the outer
-    transaction is still rolled back at the end), but it means a request that rolls back its own
-    work can't undo the test's setup with it."""
-    db.add_all(rows)
-    db.commit()
-    return rows[0]
-
-
-def make_user(db, name="Test User") -> User:
-    email = f"u-{uuid.uuid4().hex[:10]}@example.com"
-    return save(db, User(email=email, password_hash="x", full_name=name))
-
-
-@pytest.fixture
-def alice(db):
-    return make_user(db, "Alice")
-
-
-@pytest.fixture
-def bob(db):
-    return make_user(db, "Bob")
-
-
-def act_as(client, user):
-    """Switch the client's session cookie to this user."""
-    client.cookies.clear()
-    token = create_access_token(user.id, client.secret, expires_minutes=5)
-    # No domain: Python's cookiejar treats the dotless host "testserver" as "testserver.local",
-    # so a cookie scoped to domain="testserver" would silently never be sent.
-    client.cookies.set(SESSION_COOKIE, token)
 
 
 def create(client, name="HR Policies", description=None):

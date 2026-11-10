@@ -21,12 +21,15 @@ def wait_for(predicate, timeout=5.0):
 def test_warm_up_runs_and_a_failure_does_not_block_startup(settings, monkeypatch, caplog):
     calls = []
     monkeypatch.setattr(factory, "warm_up_database", lambda engine: calls.append("db"))
+    monkeypatch.setattr(
+        factory, "recover_interrupted", lambda factory_, started: calls.append("recover")
+    )
     caplog.set_level("INFO")
 
     # Qdrant points at 127.0.0.1:6999 where nothing listens, so its warm-up fails.
     with TestClient(factory.create_app(settings, warm_up=True)) as client:
         assert wait_for(lambda: "Qdrant connection warm-up failed" in caplog.text)
         assert wait_for(lambda: "Database pool warmed up" in caplog.text)
-        assert calls == ["db"]
+        assert wait_for(lambda: calls == ["db", "recover"])  # recovery runs after the warm-up
         # The app still serves requests.
         assert client.get("/api/does-not-exist").status_code == 404

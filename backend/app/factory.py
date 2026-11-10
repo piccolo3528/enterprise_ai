@@ -12,10 +12,11 @@ import logging
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
-from app.api.routes import auth, health, knowledge_bases
+from app.api.routes import auth, documents, health, knowledge_bases
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
@@ -23,6 +24,7 @@ from app.core.middleware import RequestContextMiddleware
 from app.db.session import build_engine, build_read_session_factory, build_session_factory
 from app.db.session import warm_up as warm_up_database
 from app.services.health import app_version
+from app.services.ingestion.pipeline import recover_interrupted
 from app.services.vector_store import build_qdrant_client
 
 logger = logging.getLogger("app")
@@ -37,11 +39,20 @@ async def _warm_up(name: str, fn: Callable[[], object]) -> None:
         logger.warning("%s warm-up failed (%s); requests will retry", name, type(exc).__name__)
 
 
-async def _warm_up_services(app: FastAPI, collection: str) -> None:
+async def _warm_up_services(app: FastAPI, collection: str, started_at: datetime) -> None:
     """Open the first Neon connection (~4-5 s) and the first Qdrant HTTPS connection (~0.8 s)
-    concurrently, so neither cost lands on a user's first request."""
+    concurrently, so neither cost lands on a user's first request. Once the database is up,
+    documents whose processing a restart interrupted are marked failed (retryable)."""
+
+    async def database() -> None:
+        await _warm_up("Database pool", lambda: warm_up_database(app.state.engine))
+        try:
+            await asyncio.to_thread(recover_interrupted, app.state.session_factory, started_at)
+        except Exception as exc:  # noqa: BLE001 - startup continues; logged for the developer
+            logger.warning("Recovery of interrupted documents failed (%s)", type(exc).__name__)
+
     await asyncio.gather(
-        _warm_up("Database pool", lambda: warm_up_database(app.state.engine)),
+        database(),
         _warm_up("Qdrant connection", lambda: app.state.qdrant.collection_exists(collection)),
     )
 
@@ -54,6 +65,7 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Startup: create shared clients once; every request reuses them.
+        started_at = datetime.now(UTC)
         logger.info("Starting (configuration: %s)", settings.describe())
         app.state.engine = build_engine(settings.database_url.get_secret_value())
         app.state.session_factory = build_session_factory(app.state.engine)
@@ -63,7 +75,7 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
         # `--reload` restarts stay fast). A request that arrives while the warm-up connection is
         # still busy opens a second connection of its own (~1.35 s): measured, not a bug.
         warm_task = (
-            asyncio.create_task(_warm_up_services(app, settings.qdrant_collection))
+            asyncio.create_task(_warm_up_services(app, settings.qdrant_collection, started_at))
             if warm_up
             else None
         )
@@ -88,4 +100,5 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
     app.include_router(knowledge_bases.router, prefix="/api")
+    app.include_router(documents.router, prefix="/api")
     return app

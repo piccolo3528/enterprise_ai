@@ -19,6 +19,13 @@ dependencies = [
     "python-dotenv>=1.0",
     # Markdown front matter (S2); always yaml.safe_load, never yaml.load
     "pyyaml>=6.0",
+    # document uploads (M7): multipart parsing, PDF, DOCX, text-encoding detection.
+    # PyMuPDF is pinned below 2: 2.x pulls in onnxruntime + layout-analysis extras we don't use.
+    # PyMuPDF is AGPL (tracker L20); pypdf (BSD) is the drop-in alternative.
+    "python-multipart>=0.0.33",
+    "pymupdf>=1.28,<2",
+    "python-docx>=1.2,<2",
+    "charset-normalizer>=3.5,<4",
     # PostgreSQL (Neon)
     "sqlalchemy>=2.1,<2.2",
     "psycopg[binary]>=3.3,<3.4",

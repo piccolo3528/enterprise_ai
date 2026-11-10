@@ -143,9 +143,9 @@ def delete_knowledge_base(db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID) ->
     """Delete a knowledge base and, through ON DELETE CASCADE, its documents, chunks,
     conversations and messages: one statement, scoped to the owner.
 
-    Today everything a knowledge base owns lives in PostgreSQL. When files (M7) and vectors (M9)
-    exist, this grows into the ordered delete of ARCHITECTURE §4.11: Qdrant points by kb_id →
-    PostgreSQL rows → the upload folder, so a failure part-way leaves only harmless leftovers.
+    The route then removes the upload folder (M7). M9 adds the first step of the ordered delete
+    in ARCHITECTURE §4.11: Qdrant points by kb_id -> PostgreSQL rows -> the upload folder, so a
+    failure part-way leaves only harmless leftovers.
     """
     deleted = db.execute(
         delete(KnowledgeBase)

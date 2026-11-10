@@ -11,10 +11,15 @@ import {
   listKnowledgeBases,
   updateKnowledgeBase,
 } from "./api/knowledgeBases";
+import { listDocuments } from "./api/documents";
 import { renderApp, TEST_USER } from "./test/renderApp";
 
 vi.mock("./api/health", () => ({ getHealth: vi.fn(() => new Promise(() => {})) }));
 vi.mock("./api/auth", () => ({ getMe: vi.fn(), login: vi.fn(), register: vi.fn(), logout: vi.fn() }));
+vi.mock("./api/documents", async (importOriginal) => ({
+  ...(await importOriginal()),
+  listDocuments: vi.fn(),
+}));
 vi.mock("./api/knowledgeBases", () => ({
   listKnowledgeBases: vi.fn(),
   getKnowledgeBase: vi.fn(),
@@ -53,6 +58,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getMe.mockResolvedValue(TEST_USER);
   listKnowledgeBases.mockResolvedValue([HR, IT]);
+  listDocuments.mockResolvedValue([]);
 });
 
 describe("knowledge base list", () => {
@@ -213,6 +219,22 @@ describe("editing and deleting from the list", () => {
 describe("knowledge base page", () => {
   it("shows the details and counts", async () => {
     getKnowledgeBase.mockResolvedValue(IT);
+    listDocuments.mockResolvedValue(
+      ["a", "b", "c"].map((n) => ({
+        id: n,
+        kb_id: IT.id,
+        original_filename: `${n}.md`,
+        file_type: "md",
+        size_bytes: 10,
+        status: "ready",
+        error_message: null,
+        page_count: null,
+        chunk_count: 0,
+        metadata: {},
+        created_at: "2026-11-09T10:00:00Z",
+        processed_at: "2026-11-09T10:00:01Z",
+      })),
+    );
     renderApp(`/knowledge-bases/${IT.id}`);
     expect(await screen.findByRole("heading", { name: "IT Procedures", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("No description.")).toBeInTheDocument();

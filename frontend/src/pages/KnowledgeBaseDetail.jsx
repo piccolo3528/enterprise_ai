@@ -3,12 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { getKnowledgeBase } from "../api/knowledgeBases";
+import DocumentTable from "../components/documents/DocumentTable";
+import UploadDropzone from "../components/documents/UploadDropzone";
 import DeleteKnowledgeBaseModal from "../components/knowledge-bases/DeleteKnowledgeBaseModal";
 import KnowledgeBaseFormModal from "../components/knowledge-bases/KnowledgeBaseFormModal";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
 import Spinner from "../components/ui/Spinner";
+import { useDocuments } from "../hooks/useDocuments";
 import { formatDate } from "../utils/format";
 
 function BackLink() {
@@ -20,6 +23,51 @@ function BackLink() {
       <ArrowLeft aria-hidden="true" className="size-4" />
       Knowledge bases
     </Link>
+  );
+}
+
+/** Upload area + document list. Mounted only once the knowledge base is known to be yours. */
+function DocumentsSection({ kbId, onCountChange }) {
+  const { items, setItems, error, reload } = useDocuments(kbId);
+
+  useEffect(() => {
+    if (items) onCountChange(items.length);
+  }, [items, onCountChange]);
+
+  return (
+    <section aria-labelledby="documents-heading" className="space-y-4">
+      <h2 id="documents-heading" className="text-base font-semibold text-slate-900">
+        Documents
+      </h2>
+      <UploadDropzone kbId={kbId} onUploaded={reload} />
+      {error && (
+        <ErrorBanner
+          title={items ? "Couldn't refresh the document list" : "Couldn't load the documents"}
+          error={error}
+          onRetry={reload}
+        />
+      )}
+      {!items && !error && (
+        <div className="flex items-center gap-3 text-sm text-slate-500">
+          <Spinner label="Loading documents" />
+          Loading documents…
+        </div>
+      )}
+      {items?.length === 0 && (
+        <EmptyState
+          icon={FileText}
+          title="No documents yet"
+          description="Add the PDF, Word, Markdown or text files you want to ask questions about."
+        />
+      )}
+      {items?.length > 0 && (
+        <DocumentTable
+          documents={items}
+          onChanged={reload}
+          onDeleted={(gone) => setItems((list) => list.filter((d) => d.id !== gone.id))}
+        />
+      )}
+    </section>
   );
 }
 
@@ -40,6 +88,12 @@ export default function KnowledgeBaseDetail() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const controllerRef = useRef(null);
+  // The documents list is the live source; keep the count in the header (and in the delete
+  // dialog) in step with it.
+  const setDocumentCount = useCallback(
+    (count) => setKb((current) => (current ? { ...current, document_count: count } : current)),
+    [],
+  );
 
   const load = useCallback(async () => {
     controllerRef.current?.abort();
@@ -118,24 +172,7 @@ export default function KnowledgeBaseDetail() {
         <Stat label="Last changed" value={formatDate(kb.updated_at)} />
       </dl>
 
-      <section aria-labelledby="documents-heading">
-        <h2 id="documents-heading" className="text-base font-semibold text-slate-900">
-          Documents
-        </h2>
-        <div className="mt-3">
-          {kb.document_count === 0 ? (
-            <EmptyState
-              icon={FileText}
-              title="No documents yet"
-              description="Uploading PDF, Word, Markdown and text files is the next feature being built."
-            />
-          ) : (
-            <p className="text-sm text-slate-500">
-              This knowledge base has documents; the document list is the next feature being built.
-            </p>
-          )}
-        </div>
-      </section>
+      <DocumentsSection kbId={kb.id} onCountChange={setDocumentCount} />
 
       {editing && (
         <KnowledgeBaseFormModal

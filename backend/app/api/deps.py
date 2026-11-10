@@ -19,6 +19,8 @@ from app.core.config import Settings
 from app.core.errors import NotFoundError, UnauthorizedError
 from app.core.security import SESSION_COOKIE, InvalidTokenError, decode_access_token
 from app.models import User
+from app.services.ingestion.pipeline import SessionFactory
+from app.services.storage import Storage
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -99,3 +101,27 @@ def get_kb_id(kb_id: str) -> uuid.UUID:
 
 
 KbId = Annotated[uuid.UUID, Depends(get_kb_id)]
+
+
+def get_document_id(document_id: str) -> uuid.UUID:
+    """The `{document_id}` path parameter; malformed -> 404, like a missing one."""
+    try:
+        return uuid.UUID(document_id)
+    except ValueError:
+        raise NotFoundError("Document not found.") from None
+
+
+DocumentId = Annotated[uuid.UUID, Depends(get_document_id)]
+
+
+def get_storage(settings: SettingsDep) -> Storage:
+    return Storage(settings.upload_dir)
+
+
+def get_session_factory(request: Request) -> SessionFactory:
+    """For background jobs: they outlive the request, so they open their own sessions."""
+    return request.app.state.session_factory
+
+
+StorageDep = Annotated[Storage, Depends(get_storage)]
+SessionFactoryDep = Annotated[SessionFactory, Depends(get_session_factory)]

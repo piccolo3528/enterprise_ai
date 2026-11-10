@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import load_settings
 from app.db.session import build_engine, direct_url
-from tests.helpers import alembic_config
+from tests.helpers import alembic_config, make_user
 
 
 @pytest.fixture(scope="session")
@@ -53,3 +53,13 @@ def db(test_engine) -> Session:
         finally:
             session.close()
             outer.rollback()
+
+
+@pytest.fixture
+def alice(db):
+    return make_user(db, "Alice")
+
+
+@pytest.fixture
+def bob(db):
+    return make_user(db, "Bob")
