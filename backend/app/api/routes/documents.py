@@ -1,5 +1,7 @@
 """Documents: upload into a knowledge base, list, delete, retry.
 
+Endpoints: upload, list (per knowledge base), get, chunks (inspector), reprocess, delete.
+
 The upload route reads the multipart body itself instead of declaring an `UploadFile`
 parameter. FastAPI parses declared form/file parameters *before* running dependencies, so a
 signed-out caller (or one uploading to someone else's knowledge base) could make the server
@@ -10,7 +12,9 @@ receive and spool an entire upload first. Here the order is:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Request, status
+from typing import Annotated
+
+from fastapi import APIRouter, BackgroundTasks, Query, Request, status
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
@@ -25,9 +29,9 @@ from app.api.deps import (
     StorageDep,
 )
 from app.core.errors import InvalidFileError, LengthRequiredError, PayloadTooLargeError
-from app.schemas.document import DocumentList, DocumentOut
+from app.schemas.document import ChunkPage, DocumentList, DocumentOut
 from app.services import documents as service
-from app.services.ingestion.pipeline import process_document
+from app.services.ingestion.pipeline import ChunkingConfig, process_document
 
 router = APIRouter(tags=["documents"])
 
@@ -82,7 +86,8 @@ async def upload_document(
         await form.close()  # deletes the multipart parser's temporary copy
 
     # Runs after the response is sent, in a worker thread (process_document is a plain def).
-    background.add_task(process_document, session_factory, storage, document.id)
+    config = ChunkingConfig.from_settings(settings)
+    background.add_task(process_document, session_factory, storage, config, document.id)
     return document
 
 
@@ -99,20 +104,41 @@ def delete_document(
     service.delete_document(db, storage, user_id, document_id)
 
 
+@router.get("/documents/{document_id}", response_model=DocumentOut)
+def get_document(user_id: CurrentUserId, document_id: DocumentId, db: ReadDbSession):
+    return service.get_document(db, user_id, document_id)
+
+
+@router.get("/documents/{document_id}/chunks", response_model=ChunkPage)
+def list_chunks(
+    user_id: CurrentUserId,
+    document_id: DocumentId,
+    db: ReadDbSession,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+):
+    """The chunk inspector: the document's chunks in order, a page at a time."""
+    chunks, total = service.list_chunks(db, user_id, document_id, offset=offset, limit=limit)
+    return ChunkPage(items=chunks, total=total, offset=offset, limit=limit)
+
+
 @router.post(
-    "/documents/{document_id}/retry",
+    "/documents/{document_id}/reprocess",
     response_model=DocumentOut,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def retry_document(
+def reprocess_document(
     user_id: CurrentUserId,
     document_id: DocumentId,
     db: DbSession,
+    settings: SettingsDep,
     storage: StorageDep,
     session_factory: SessionFactoryDep,
     background: BackgroundTasks,
 ):
-    """Process a failed document again (e.g. after a restart interrupted it)."""
-    document = service.retry_document(db, user_id, document_id)
-    background.add_task(process_document, session_factory, storage, document.id)
+    """Process a failed or ready document again (e.g. after a restart, or after changing the
+    chunking settings). 409 while it is already queued or processing."""
+    document = service.reprocess_document(db, user_id, document_id)
+    config = ChunkingConfig.from_settings(settings)
+    background.add_task(process_document, session_factory, storage, config, document.id)
     return document

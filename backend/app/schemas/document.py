@@ -32,3 +32,25 @@ class DocumentOut(BaseModel):
 
 class DocumentList(BaseModel):
     items: list[DocumentOut]
+
+
+class ChunkOut(BaseModel):
+    """One chunk, for the inspector: exactly the text that is embedded and searched."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    chunk_index: int
+    text: str
+    token_count: int
+    page_start: int | None
+    page_end: int | None
+    section: str | None
+    strategy: str
+
+
+class ChunkPage(BaseModel):
+    items: list[ChunkOut]
+    total: int
+    offset: int
+    limit: int

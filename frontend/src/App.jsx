@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router";
 import AppLayout from "./components/layout/AppLayout";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/layout/RouteGuards";
 import Dashboard from "./pages/Dashboard";
+import DocumentChunks from "./pages/DocumentChunks";
 import KnowledgeBaseDetail from "./pages/KnowledgeBaseDetail";
 import KnowledgeBases from "./pages/KnowledgeBases";
 import Login from "./pages/Login";
@@ -24,6 +25,10 @@ export default function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="knowledge-bases" element={<KnowledgeBases />} />
           <Route path="knowledge-bases/:kbId" element={<KnowledgeBaseDetail />} />
+          <Route
+            path="knowledge-bases/:kbId/documents/:documentId"
+            element={<DocumentChunks />}
+          />
           <Route path="status" element={<SystemStatus />} />
           <Route path="*" element={<NotFound />} />
         </Route>

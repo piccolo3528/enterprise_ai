@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -80,8 +81,11 @@ class Settings(BaseSettings):
     max_upload_mb: int = Field(default=20, ge=1)
 
     # --- RAG tuning ---------------------------------------------------------------------
-    chunk_size_tokens: int = Field(default=400, ge=50)
+    # Counted in embedding-model tokens; 510 = the model's 512 minus its two special tokens.
+    chunk_size_tokens: int = Field(default=400, ge=50, le=510)
     chunk_overlap_tokens: int = Field(default=60, ge=0)
+    # auto = heading-aware when the document has headings (Markdown, DOCX), else recursive.
+    chunk_strategy: Literal["auto", "fixed", "overlap", "recursive", "heading"] = "auto"
     retrieval_top_k: int = Field(default=20, ge=1)
     rerank_top_n: int = Field(default=5, ge=1)
     context_token_budget: int = Field(default=5000, ge=500)

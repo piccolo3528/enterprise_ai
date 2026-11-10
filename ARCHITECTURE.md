@@ -1,7 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M7 (2026-11-10).** Parts labelled
-> "implemented in M2" … "M7" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M8 (2026-11-10).** Parts labelled
+> "implemented in M2" … "M8" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
@@ -248,6 +248,35 @@ answer exists.
   (or `section` for DOCX and line ranges for TXT), `token_count` and `strategy`.
 - PDF text is extracted per page and each character offset is mapped back to its page, so a chunk
   that crosses a page boundary reports `page_start=4, page_end=5`.
+
+**Implemented in M8** (`services/ingestion/chunking.py`, `tokens.py`, `pipeline.py`):
+- **Four strategies, from scratch:** `fixed` (token windows), `overlap` (step N − O),
+  `recursive` (paragraph → line → sentence → word, then greedy merge; overlap = whole trailing
+  pieces up to O tokens), `heading` (S3: never crosses a top-level section, merges small sibling
+  sections, oversized sections fall back to recursive). `CHUNK_STRATEGY=auto` (default) uses
+  `heading` when a document has headings, `recursive` otherwise (D45). *Recursive is no longer
+  the only default.*
+- **Tokens:** bge-small's own `tokenizer.json` (the `tokenizers` library, no PyTorch), loaded
+  once per process during the startup warm-up. Its offsets point into the original text, so
+  chunks keep their casing and formatting. Target `CHUNK_SIZE_TOKENS` (400; capped at 510 in
+  config), hard limit 510 content tokens enforced separately (D46).
+- **Spans + segment map (D47):** blocks are assembled into one text, writing heading lines where
+  the heading path changes; each strategy returns character spans; a chunk's `page_start/end`
+  and `section` come from the segments its span touches. Section labels drop the document title
+  and show merged ranges: `4. Entitlements › 4.1 Annual entitlement – 4.3 Leave during
+  probation`.
+- **Context header (heading-aware only):** `NX-HR-002 v3.0 · <section>` + blank line + body. It
+  is stored in `chunks.text`, so what is embedded, keyword-searched and shown is the same text.
+- **Storage (D48):** the job's final transaction marks the document ready, deletes old chunks and
+  inserts the new ones in one `executemany` (psycopg 3 pipelines it: 120 rows in 176 ms on Neon).
+  A failed reprocess removes stale chunks. Chunk ids are generated in Python (they become Qdrant
+  point ids in M9).
+- **API:** `GET /api/documents/{id}`, `GET /api/documents/{id}/chunks?offset&limit` (the chunk
+  inspector), `POST /api/documents/{id}/reprocess` (failed or ready). Script:
+  `scripts/reprocess_documents.py` (pre-M8 documents, or `--all` after changing `CHUNK_*`).
+- **Measured on the corpus (22 docs, size 400, overlap 60):** fixed 136 chunks (median 400
+  tokens), overlap 155 (400), recursive 164 (357), heading 333 (144). M11 compares them on
+  retrieval quality.
 
 ### 4.2 Embeddings and vector storage
 

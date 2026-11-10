@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
-from app.models import Document, KnowledgeBase
+from app.models import Chunk, Document, KnowledgeBase
 from app.services.ingestion.validation import check_content, display_filename, file_type_of
 from app.services.knowledge_bases import NOT_FOUND as KB_NOT_FOUND
 from app.services.storage import Storage
@@ -151,21 +151,53 @@ def delete_document(
     storage.delete(deleted.stored_path)
 
 
-def retry_document(db: Session, owner_id: uuid.UUID, document_id: uuid.UUID) -> Document:
-    """failed -> uploaded, so the background job can pick it up again."""
-    retried = db.scalar(
+REPROCESSABLE = ("failed", "ready")
+
+
+def reprocess_document(db: Session, owner_id: uuid.UUID, document_id: uuid.UUID) -> Document:
+    """failed or ready -> uploaded, so the background job runs again: after a failure, or to
+    rebuild chunks when the chunking settings change (and for documents from before M8)."""
+    queued = db.scalar(
         update(Document)
-        .where(*_owned_document(owner_id, document_id), Document.status == "failed")
+        .where(*_owned_document(owner_id, document_id), Document.status.in_(REPROCESSABLE))
         .values(status="uploaded", error_message=None)
         .returning(Document)
         .execution_options(synchronize_session=False)
     )
-    if retried is None:
-        # Only on this unhappy path: is it missing/not yours (404) or just not failed (409)?
+    if queued is None:
+        # Only on this unhappy path: is it missing/not yours (404) or busy (409)?
         status = db.scalar(select(Document.status).where(*_owned_document(owner_id, document_id)))
         db.rollback()
         if status is None:
             raise NotFoundError(DOCUMENT_NOT_FOUND)
-        raise ConflictError(f"Only failed documents can be retried (this one is {status}).")
+        raise ConflictError(f"This document is already being processed ({status}).")
     db.commit()
-    return retried
+    return queued
+
+
+def get_document(db: Session, owner_id: uuid.UUID, document_id: uuid.UUID) -> Document:
+    document = db.scalar(select(Document).where(*_owned_document(owner_id, document_id)))
+    if document is None:
+        raise NotFoundError(DOCUMENT_NOT_FOUND)
+    return document
+
+
+def list_chunks(
+    db: Session, owner_id: uuid.UUID, document_id: uuid.UUID, *, offset: int, limit: int
+) -> tuple[list[Chunk], int]:
+    """A page of the document's chunks in order, plus the total. Two reads: the page (ownership
+    joined in) and the document, which supplies the total (`chunk_count`) and decides 404,
+    since an empty page alone can't tell "no chunks" from "not yours"."""
+    chunks = list(
+        db.scalars(
+            select(Chunk)
+            .join(Document, Chunk.document_id == Document.id)
+            .join(KnowledgeBase, Document.kb_id == KnowledgeBase.id)
+            .where(Chunk.document_id == document_id, KnowledgeBase.owner_id == owner_id)
+            .order_by(Chunk.chunk_index)
+            .offset(offset)
+            .limit(limit)
+        )
+    )
+    document = get_document(db, owner_id, document_id)  # 404 if missing / not yours
+    return chunks, document.chunk_count

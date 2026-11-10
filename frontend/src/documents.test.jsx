@@ -4,7 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getMe } from "./api/auth";
 import { ApiError } from "./api/client";
-import { deleteDocument, listDocuments, retryDocument, uploadDocument } from "./api/documents";
+import {
+  deleteDocument,
+  getDocument,
+  listChunks,
+  listDocuments,
+  reprocessDocument,
+  uploadDocument,
+} from "./api/documents";
 import { getKnowledgeBase } from "./api/knowledgeBases";
 import { POLL_INTERVAL_MS } from "./hooks/useDocuments";
 import { renderApp, TEST_USER } from "./test/renderApp";
@@ -24,7 +31,9 @@ vi.mock("./api/documents", async (importOriginal) => ({
   listDocuments: vi.fn(),
   uploadDocument: vi.fn(),
   deleteDocument: vi.fn(),
-  retryDocument: vi.fn(),
+  reprocessDocument: vi.fn(),
+  getDocument: vi.fn(),
+  listChunks: vi.fn(),
 }));
 
 const KB = {
@@ -179,10 +188,10 @@ describe("document actions", () => {
     listDocuments
       .mockResolvedValueOnce([doc({ status: "failed", error_message: "Interrupted." })])
       .mockResolvedValue([doc({ status: "ready" })]);
-    retryDocument.mockResolvedValue(doc({ status: "uploaded" }));
+    reprocessDocument.mockResolvedValue(doc({ status: "uploaded" }));
     openPage();
     await userEvent.click(await screen.findByRole("button", { name: "Retry leave-policy.md" }));
-    expect(retryDocument).toHaveBeenCalledWith("d1");
+    expect(reprocessDocument).toHaveBeenCalledWith("d1");
     expect(await (await table()).findByText("Ready")).toBeInTheDocument();
   });
 
@@ -209,5 +218,75 @@ describe("document actions", () => {
     expect(alert).toHaveTextContent("Couldn't load the documents");
     await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
     expect(await (await table()).findByText("leave-policy.md")).toBeInTheDocument();
+  });
+});
+
+function chunk(index, overrides = {}) {
+  return {
+    id: `c${index}`,
+    chunk_index: index,
+    text: `NX-HR-002 v3.0 · 4. Entitlements
+
+Chunk ${index} text.`,
+    token_count: 100 + index,
+    page_start: null,
+    page_end: null,
+    section: "4. Entitlements › 4.1 Annual entitlement",
+    strategy: "heading",
+    ...overrides,
+  };
+}
+
+const inspector = () => renderApp(`/knowledge-bases/${KB.id}/documents/d1`);
+
+describe("chunk inspector", () => {
+  it("links ready documents from the table to their chunks", async () => {
+    listDocuments.mockResolvedValue([doc({ chunk_count: 16 })]);
+    openPage();
+    const link = await screen.findByRole("link", { name: "leave-policy.md" });
+    expect(link).toHaveAttribute("href", `/knowledge-bases/${KB.id}/documents/d1`);
+    expect(link.closest("tr")).toHaveTextContent("16 chunks");
+  });
+
+  it("shows each chunk's section, pages and size, a page at a time", async () => {
+    getDocument.mockResolvedValue(doc({ chunk_count: 3 }));
+    listChunks
+      .mockResolvedValueOnce({ items: [chunk(0), chunk(1, { page_start: 2, page_end: 3 })], total: 3, offset: 0, limit: 2 })
+      .mockResolvedValueOnce({ items: [chunk(2)], total: 3, offset: 2, limit: 2 });
+    inspector();
+    const list = within(await screen.findByRole("list", { name: "Chunks" }));
+    expect(list.getAllByRole("listitem")).toHaveLength(2);
+    expect(list.getAllByText("4. Entitlements › 4.1 Annual entitlement")).toHaveLength(2);
+    expect(list.getByText("pp. 2–3")).toBeInTheDocument();
+    expect(list.getByText("101 tokens")).toBeInTheDocument();
+    expect(screen.getByText(/3 chunks · heading chunking · 101 tokens on average/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(list.getAllByRole("listitem")).toHaveLength(3));
+    expect(listChunks).toHaveBeenLastCalledWith("d1", expect.objectContaining({ offset: 2 }));
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("explains a document from before chunking existed, and reprocesses it", async () => {
+    getDocument
+      .mockResolvedValueOnce(doc({ chunk_count: 0 }))
+      .mockResolvedValue(doc({ chunk_count: 1 }));
+    listChunks
+      .mockResolvedValueOnce({ items: [], total: 0, offset: 0, limit: 50 })
+      .mockResolvedValue({ items: [chunk(0)], total: 1, offset: 0, limit: 50 });
+    reprocessDocument.mockResolvedValue(doc({ status: "uploaded" }));
+    inspector();
+    expect(await screen.findByRole("heading", { name: "No chunks" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Reprocess" }));
+    expect(reprocessDocument).toHaveBeenCalledWith("d1");
+    expect(await screen.findByRole("list", { name: "Chunks" })).toBeInTheDocument();
+  });
+
+  it("says not found for a missing (or someone else's) document", async () => {
+    getDocument.mockRejectedValue(
+      new ApiError({ status: 404, code: "not_found", message: "Document not found." }),
+    );
+    inspector();
+    expect(await screen.findByRole("heading", { name: "Document not found" })).toBeInTheDocument();
   });
 });

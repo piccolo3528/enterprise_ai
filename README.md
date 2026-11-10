@@ -4,9 +4,10 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M7 done: backend and frontend skeletons, the database schema on Neon
-> (Singapore), accounts, private knowledge bases with a dashboard, and document upload with
-> background text extraction (PDF, DOCX, Markdown, TXT). Next: chunking (M8).**
+> **Project status: M0–M8 done: backend and frontend skeletons, the database schema on Neon
+> (Singapore), accounts, private knowledge bases with a dashboard, document upload with
+> background text extraction (PDF, DOCX, Markdown, TXT), and chunking with a chunk inspector.
+> Next: embeddings and Qdrant (M9).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -324,8 +325,18 @@ frontend.
 - Sidebar items marked **Soon** are pages that later milestones will build.
 - Opening another user's knowledge base (or a deleted one) shows *"Knowledge base not found"*:
   the server answers 404 either way, so it never confirms that someone else's id exists.
+- Click a **Ready** document's name to open its **chunk inspector**: every chunk with its section,
+  pages and token count. **Reprocess** rebuilds them.
+- Chunking is set in `backend/.env`: `CHUNK_STRATEGY` (`auto`, `fixed`, `overlap`, `recursive`,
+  `heading`), `CHUNK_SIZE_TOKENS` (≤ 510), `CHUNK_OVERLAP_TOKENS`. After changing them, rebuild
+  existing documents' chunks:
 
-### 13. Run the tests *(verified; M7: 140 unit + 60 live backend, 60 frontend)*
+  ```powershell
+  python scripts/reprocess_documents.py --all --dry-run   # list what would change
+  python scripts/reprocess_documents.py --all
+  ```
+
+### 13. Run the tests *(verified; M8: 162 unit + 67 live backend, 64 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)

@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-10** · Current milestone: **M7 — Document Upload & Text Extraction (COMPLETED)** · Next: **M8 — Chunking**
+> Last updated: **2026-11-10** · Current milestone: **M8 — Chunking (COMPLETED)** · Next: **M9 — Embeddings & Vector Storage**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -164,12 +164,12 @@ explain the concept back in your own words (or answer the related interview ques
 | 13 | Text extraction | Getting clean text + page structure out of PDF/DOCX/TXT | COMPLETED (M7: PDF per page, DOCX headings + tables in order, Markdown headings + front matter, TXT encodings; all 22 corpus docs in 0.13 s) | ☐ | `ingestion/extractors.py` |
 | 14 | Text cleaning | Normalizing whitespace and Unicode, de-hyphenation, removing noise | COMPLETED (M7: NFC not NFKC, ligatures, invisible characters, hyphenated line breaks) | ☐ | `ingestion/cleaning.py` |
 | 15 | Background processing | Return 202 fast; process later; track status in the DB | COMPLETED (M7: conditional status updates, no DB connection held while parsing, startup recovery, retry) | ☐ | `ingestion/pipeline.py` |
-| 16 | Fixed-size chunking | Split every N units; simple but breaks sentences | NOT STARTED | ☐ | `ingestion/chunking.py` |
-| 17 | Overlapping chunks | Windows share O units so boundary facts survive whole | NOT STARTED | ☐ | `ingestion/chunking.py` |
-| 18 | Recursive chunking | Split on paragraph → line → sentence → word, following the text's structure | NOT STARTED | ☐ | `ingestion/chunking.py` |
-| 19 | Chunk size/overlap trade-offs | Small = precise but loses context; large = context but diluted vectors | NOT STARTED | ☐ | `evaluation/compare_chunking.py` |
-| 20 | Metadata preservation | Each chunk keeps doc/page/section, which is what makes citations possible | NOT STARTED | ☐ | `ingestion/chunking.py` |
-| 21 | Tokens & tokenization | Models see subword tokens, not characters; limits are counted in tokens | NOT STARTED | ☐ | `embeddings.py` |
+| 16 | Fixed-size chunking | Split every N units; simple but breaks sentences | COMPLETED (M8: token windows via tokenizer offsets) | ☐ | `ingestion/chunking.py` |
+| 17 | Overlapping chunks | Windows share O units so boundary facts survive whole | COMPLETED (M8: window step N−O; recursive carries whole trailing sentences) | ☐ | `ingestion/chunking.py` |
+| 18 | Recursive chunking | Split on paragraph → line → sentence → word, following the text's structure | COMPLETED (M8) | ☐ | `ingestion/chunking.py` |
+| 19 | Chunk size/overlap trade-offs | Small = precise but loses context; large = context but diluted vectors | IN PROGRESS (M8: strategies measured on the corpus by size; retrieval quality compared in M11) | ☐ | `evaluation/compare_chunking.py` |
+| 20 | Metadata preservation | Each chunk keeps doc/page/section, which is what makes citations possible | COMPLETED (M8: character spans mapped back to pages and heading paths) | ☐ | `ingestion/chunking.py` |
+| 21 | Tokens & tokenization | Models see subword tokens, not characters; limits are counted in tokens | COMPLETED (M8: bge WordPiece tokenizer, offsets back to the original text; "NX-HR-002" = 7 tokens) | ☐ | `ingestion/tokens.py` |
 | 22 | Embeddings | Text → fixed-length vector where similar meanings sit close together | IN PROGRESS (M1 demo: `download_models.py`) | ☐ | `scripts/download_models.py` → `embeddings.py` (M9) |
 | 23 | Vector dimensions | Number of coordinates (384 for bge-small); affects memory and speed | NOT STARTED | ☐ | `embeddings.py` |
 | 24 | Cosine similarity | cos θ = a·b / (‖a‖‖b‖); equals the dot product for normalized vectors | IN PROGRESS (M1 demo: cosine computed by hand == dot) | ☐ | `scripts/download_models.py` → tests (M9) |
@@ -212,6 +212,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 61 | Expression (functional) unique index | `UNIQUE (owner_id, lower(name))`: uniqueness on a computed value, which a plain UNIQUE constraint can't express | COMPLETED (M6: migration `e0b6121b0338`) | ☐ | `models/knowledge_base.py`, `alembic/versions/` |
 | 62 | Partial updates (PATCH semantics) | Only fields actually sent change; "absent" ≠ "null" (`model_fields_set`) | COMPLETED (M6) | ☐ | `schemas/knowledge_base.py` |
 | 64 | Character encodings | Bytes → text needs the right encoding; BOM, strict UTF-8, then a measured Windows-1252 rule before statistical detection | COMPLETED (M7) | ☐ | `ingestion/extractors.py` (`decode_text`) |
+| 66 | Heading-aware (structure-aware) chunking | Chunks follow the document's sections, never cross a top-level one, merge tiny siblings, and carry a context header (doc id + section) | COMPLETED (M8) | ☐ | `ingestion/chunking.py` (`heading_spans`) |
+| 67 | Batched writes / pipelining | Send many rows in one driver call; the driver pipelines them instead of one round trip each | COMPLETED (M8: 120 rows in 176 ms on Neon) | ☐ | `ingestion/pipeline.py` (`_store`) |
 | 65 | Polling without pile-ups | A `setTimeout` chain (next request only after the last answer) that stops when nothing is pending | COMPLETED (M7) | ☐ | `hooks/useDocuments.js` |
 | 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
@@ -353,17 +355,19 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M6.
 - **Testing:** 63 new unit tests (validation, storage, cleaning, extraction on generated files, route guards) + 21 live API tests + 10 frontend tests; Chrome run with real converted documents.
 
-### M8 — Chunking · `NOT STARTED`
-- **Objective:** Three chunking strategies with token-aware sizing and page metadata.
+### M8 — Chunking · `COMPLETED` (2026-11-10)
+- **Objective:** Chunking strategies with token-aware sizing and page/section metadata.
 - **Tasks:**
-  - [ ] Fixed, fixed + overlap, recursive (default), written from scratch
-  - [ ] Token counting with the embedding tokenizer; never exceed 512
-  - [ ] Page-span mapping; DOCX sections
-  - [ ] Persist chunks to Neon (batched inserts, to limit round trips to the cloud)
-  - [ ] Chunk inspector endpoint `GET /api/documents/{id}/chunks`
-- **Expected output:** every ready document has inspectable chunks with correct pages.
+  - [x] Four strategies written from scratch (`ingestion/chunking.py`): fixed, overlap, recursive, **heading-aware** (S3); `CHUNK_STRATEGY=auto` (default) = heading-aware when a document has headings, recursive otherwise (D45)
+  - [x] Token counting with bge-small's own `tokenizer.json` (`tokenizers`, no PyTorch), offsets mapped back to the original text; hard limit 510 content tokens enforced separately from the 400-token target (D46); `CHUNK_SIZE_TOKENS` capped at 510 in config; tokenizer loaded in the startup warm-up
+  - [x] One assembled text with heading lines + a segment map → every chunk gets `page_start/page_end` (PDF) and a `section` label (Markdown/DOCX, e.g. `4. Entitlements › 4.1 Annual entitlement – 4.3 Leave during probation`); heading-aware chunks start with a context header (`NX-HR-002 v3.0 · …`) that is stored, embedded and searched (D47)
+  - [x] Persisted in the job's final transaction: mark ready → delete old chunks → batched insert (one `executemany`, pipelined: 120 rows in 176 ms) → commit; a failed reprocess removes stale chunks (D48)
+  - [x] `GET /api/documents/{id}`, `GET /api/documents/{id}/chunks?offset&limit` (≤ 200), `POST /api/documents/{id}/reprocess` (replaces `/retry`; from `failed` or `ready`, 409 while queued/processing)
+  - [x] `scripts/reprocess_documents.py` (pre-M8 documents with 0 chunks by default, `--all` after changing chunk settings, `--dry-run`); run on the user's 5 corpus documents → 74 chunks in 5.3 s (L33 closed)
+  - [x] Frontend: chunk counts in the document table, ready documents link to a **chunk inspector** page (section, pages, tokens, strategy, average size, Load more, Reprocess, "No chunks" state for pre-M8 documents)
+- **Expected output:** every ready document has inspectable chunks with correct pages. **Achieved** (tests, the user's 5 documents, inspector checked read-only in Chrome).
 - **Dependencies:** M7.
-- **Testing:** unit (overlap correctness, no empty chunks, max tokens, page spans, determinism).
+- **Testing:** 18 chunking unit tests (incl. the real tokenizer on NX-HR-002) + 4 route guards + 7 live API tests + 4 frontend tests (§F.8).
 
 ### M9 — Embeddings & Vector Storage · `NOT STARTED`
 - **Objective:** Embed chunks locally and store/search them in Qdrant.
@@ -483,13 +487,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
   a 404 indistinguishable from "missing"); dashboard with totals.
 - Documents (M7): upload PDF/DOCX/MD/TXT with validation, background extraction with status,
   retry, delete; Markdown front matter kept as metadata.
-- Next: chunking (M8), then embeddings (M9).
+- Chunking (M8): four strategies with token-exact sizes, page/section metadata, chunk inspector,
+  reprocessing (endpoint and script).
+- Next: embeddings and Qdrant (M9).
 
 ### F.2 In progress
-- Nothing. M8 (chunking) is next.
+- Nothing. M9 (embeddings & vector storage) is next.
 
 ### F.3 Remaining functionality
-- Everything in M8–M17 (M18 optional).
+- Everything in M9–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -530,8 +536,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L30 | De-hyphenation joins any lower-case word split by "-" at a line end | A real compound split there ("well-\nknown") loses its hyphen ("wellknown") | Only applied across line breaks, only lower-case on both sides; keyword search is barely affected |
 | L31 | PDF text order is PyMuPDF's block order; PDF tables become plain text; no OCR (L14) | Multi-column or complex layouts can interleave; table cells lose their grid | Fine for policy-style PDFs (verified on a generated 6-page policy); `pymupdf4llm` (PyMuPDF 2.x) could add layout/table analysis later, at the cost of the onnxruntime dependency (D40) |
 | L32 | DOCX: only built-in `Heading N` styles count as headings; headers/footers, footnotes, comments and text boxes aren't extracted | Custom-styled headings give no section path; footnote text is missing | Documented; most policy templates use the built-in styles |
-| L33 | Documents marked `ready` in M7 have no chunks yet | After M8, they'd be "ready" but unsearchable | M8 extends the same job; existing documents are reprocessed (planned in M8) |
+| L33 | Documents marked `ready` in M7 have no chunks yet | After M8, they'd be "ready" but unsearchable | **Closed (M8):** `scripts/reprocess_documents.py` gave the user's 5 documents 74 chunks; the inspector shows "No chunks" + Reprocess for any other |
 | L34 | **Processing time is dominated by the network, not parsing** | Measured in Chrome on 2026-11-10: documents took 6.6–25.7 s to become ready while parsing takes ~0.1 s; at the same time google.com took 11.7 s and a new Neon connection 9.6 s (normally 1.35 s) | The job needs only two short transactions; connections are pooled; the UI polls and shows "Processing" honestly. Re-measure on a healthy network |
+| L35 | Heading-aware chunks are small on this corpus (median 144 tokens vs a 400 target) | Many top-level sections are short and chunks never cross them: more chunks, less context each | Deliberate (precision, clean citations); M11 compares it with recursive (median 357) on retrieval metrics before choosing the default |
+| L36 | Chunk text includes the heading lines and (heading-aware) a context header | Section names are repeated across chunks; keyword search for a section title matches all its chunks | Intended: the embedding and the LLM see where text comes from; revisit if M11 shows header noise |
+| L37 | Chunk settings apply to new processing only | After changing `CHUNK_*`, old documents keep their old chunks | Run `scripts/reprocess_documents.py --all` (or Reprocess per document) |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -578,6 +587,10 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D42 | 2026-11-10 | **Text decoding order:** BOM → strict UTF-8 → Windows-1252 if ≤ 30% non-ASCII → charset-normalizer | Measured: charset-normalizer guessed cp1257/cp852/cp1250 for short cp1252 texts ("naïve" → "naļve"); Western prose is 2–5% non-ASCII, Cyrillic-as-cp1252 93% | Detection first; UTF-8 only (rejects legacy files) | Accepted (M7) |
 | D43 | 2026-11-10 | Frontend polls the document list every 2 s with a `setTimeout` chain, only while something is queued or processing | No overlapping requests; stops by itself; one request covers all documents | `setInterval`; per-document polling; SSE/WebSocket (more machinery than M7 needs) | Accepted (M7) |
 | D44 | 2026-11-10 | Background job rules: conditional status UPDATEs; no DB connection held while parsing; never raises; "ready" in M7 = text extracted and checked (extracted text is not stored; M8 chunks inside the same job) | Deletes/retries during processing are safe; the small pool isn't blocked by CPU work; no orphaned "processing" rows | Store extracted text in a new table (duplicates what chunks will hold) | Accepted (M7) |
+| D45 | 2026-11-10 | **`CHUNK_STRATEGY=auto`**: heading-aware when the document has headings (Markdown, DOCX), recursive otherwise; all four strategies kept and selectable | Structure-aware chunks keep sections intact and give clean section citations; PDFs have no headings | One strategy for everything; recursive-only (ARCHITECTURE v0.2's default) | Accepted (M8); to be confirmed with numbers in M11 |
+| D46 | 2026-11-10 | Sizes counted with the embedding model's `tokenizer.json` via `tokenizers` (offsets into the original text); 400 = target, 510 = hard limit enforced separately | Exact counts; casing/formatting kept (the tokenizer lowercases, offsets don't); re-tokenising a slice can add a token (fixed hit 401) | Characters/words (silently overflow 512); `transformers` AutoTokenizer (heavier import) | Accepted (M8) |
+| D47 | 2026-11-10 | Strategies return character **spans** into one assembled text (with heading lines) + a segment map, not strings | Pages and sections for any chunk come from its offsets; one code path for all four strategies | Each strategy tracking metadata itself | Accepted (M8) |
+| D48 | 2026-11-10 | Chunks are written in the job's final transaction (ready + delete old + insert new); `/retry` became `/reprocess` (failed or ready) | A document is never "ready" without chunks or with two sets; reprocessing doubles as "rebuild after changing settings" | Separate chunking job; keep retry failed-only | Accepted (M8) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -645,6 +658,13 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-09 | M6 | `npm run build` | ✔ | 364 kB JS (117 kB gzipped), 27 kB CSS |
 | 2026-11-09 | M6 | Manual in Chrome (user's running servers), two accounts | ✔ | Register → empty dashboard; create from the dashboard (`"  HR   Policies "` saved as `HR Policies`) → detail page; focus starts in Name; `hr policies` → 409 under the field; rename from the card in place (focus back on Edit); `document.cookie` empty. **As Bob:** Alice's KB URL → "Knowledge base not found"; GET/PATCH/DELETE on her id return the same status + body as a random id; his list empty; he may create his own "HR Policies"; NUL byte → 422. **As Alice again:** KB unchanged; delete from the detail page → list with notice; after a reload the notice isn't repeated; dashboard totals right; no console errors. List call through the proxy: **123–193 ms** (median ~140). Test accounts deleted afterwards (cascade removed their KBs) |
 | 2026-11-09 | M6 | Found in Chrome | ✔ fixed | Field messages read "Value error, Name contains…" (pydantic's prefix for custom validators; M5's "Enter your name" too) → stripped in `core/errors.py`, unit test added, confirmed on the running server |
+| 2026-11-10 | M8 | Strategies on the 22-document corpus (size 400, overlap 60, real tokenizer) | ℹ | fixed 136 chunks (tokens 45/400/401 min/median/max), overlap 155 (89/400/401), recursive 164 (96/357/400), heading 333 (37/144/426 incl. header); none over 510; ~0.6–1.2 s each for all 22 documents |
+| 2026-11-10 | M8 | `pytest` (unit) | ✔ 162 passed | +18 chunking (fake word tokenizer: assemble + segment map, fixed covers every token once, overlap shares exactly O, recursive keeps paragraphs/whole sentences and carries whole sentences as overlap, heading-aware never crosses a top-level section + merges siblings + header/section labels, auto selection, determinism/ordering/no empty chunks for all four, page spans, 510 hard limit, unknown strategy; real bge tokenizer on NX-HR-002: all ≤ 510, counts exact, header on every chunk) + 4 route guards. 2 test-arithmetic errors fixed (heading lines count as tokens; recursive keeps 8-word pages whole) |
+| 2026-11-10 | M8 | `pytest -m live` (Neon test branch) | ✔ 67 passed | +7: Markdown → heading chunks with header, `kb_id`, consecutive indexes, `chunk_count` = rows, inspector order + section label; PDF → recursive with pages 1–3; paging (`limit`, `offset`, 422 above 200); reprocess replaces chunks (same count, new ids); a reprocess that now fails leaves 0 chunks; delete cascades chunks; reprocess while processing → 409; cross-user GET/chunks/reprocess = same 404 as random ids |
+| 2026-11-10 | M8 | Batched insert probe (test branch, rolled back) | ✔ | 120 chunk rows = **1** `executemany` call, **176 ms** (pipelined; ~3 round trips) vs ~7 s estimated at one round trip per row |
+| 2026-11-10 | M8 | `scripts/reprocess_documents.py` on the dev database | ✔ | The user's 5 pre-M8 documents (NX-HR-001 v4.0, NX-HR-002 v2.0/v3.0, NX-HR-003 v1.0/v2.0) → 13 + 17 + 16 + 12 + 16 = 74 chunks, 5.3 s |
+| 2026-11-10 | M8 | `npm test` / `npm run build` | ✔ 64 passed / ✔ | +4: table links ready documents + chunk count, inspector shows section/pages/tokens + Load more, "No chunks" + Reprocess for pre-M8 documents, not found. Build 379 kB JS (120 kB gzipped) |
+| 2026-11-10 | M8 | Chrome, read-only on the user's own account | ✔ | Table shows `13–17 chunks` per document and `v2.0 · superseded`; inspector for NX-HR-002 v3.0: 16 chunks · heading chunking · 218 tokens on average; chunk #0 = document-control block with header; merged section labels as designed; 0 over 510; chunks endpoint ~190 ms. No data changed (no Reprocess clicked, no uploads) |
 | 2026-11-10 | M7 | PyMuPDF 2.1 install inspected | ℹ changed | It pulled `onnxruntime`, `pymupdf4llm`, `pymupdf_layout`; uninstalled and pinned 1.28.2 (no dependencies); `pip check` clean (D40) |
 | 2026-11-10 | M7 | `pytest` (unit) | ✔ 140 passed | +63: filenames (path traversal, Windows paths, control chars, length), extension allow-list, magic bytes (fake PDF, PDF-as-DOCX, legacy .doc, PNG-as-TXT, non-Word ZIP), **zip bomb** (< 1 MB → 300 MB declared) refused, empty file, storage (hash while saving, size limit leaves nothing, no path escape), 11 cleaning cases, PDF per page + blank page skipped, scanned PDF → OCR message, encrypted PDF, damaged PDF/DOCX, DOCX headings + table order, TXT in UTF-8/BOM/UTF-16/cp1252 + Cyrillic cp1251, Markdown front matter + heading paths + code fence, YAML `!!python/object` refused, route guards (401, malformed id 404), startup recovery runs after warm-up |
 | 2026-11-10 | M7 | Encoding detection measured | ✔ fixed | charset-normalizer picked cp1257 / cp852 / cp1250 for three short cp1252 samples (garbling accents and curly quotes) → D42; first threshold (20%) failed on an accent-dense sentence (21%) → 30% with the measured spread recorded in code |
@@ -680,6 +700,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **Added in M5:** argon2-cffi 25.1.0, PyJWT 2.15.1, email-validator 2.3.0.
 **M6:** no new dependencies (backend or frontend). Neon `production` and `test` are at migration `e0b6121b0338`.
 **Added in M7:** pymupdf 1.28.2 (pinned < 2, D40), python-docx 1.2.0 (lxml 6.1.3), python-multipart 0.0.33; charset-normalizer 3.5.2 and PyYAML 6.0.3 now declared directly. Frontend: none.
+**M8:** tokenizers 0.23.3 and huggingface-hub 2.4.0 now declared directly (already installed via sentence-transformers). New setting `CHUNK_STRATEGY` (default `auto`).
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -757,9 +778,16 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   detection: it failed on short Western text, so a simple explicit rule went first; parse without
   holding a database connection; conditional status updates make deletes and retries safe; a
   "slow app" was a congested network: time something unrelated (google.com) before profiling code.
+- **M8:** count tokens with the model's own tokenizer and keep its offsets (it lowercases; offsets
+  keep the original text); return spans, not strings, so pages and sections fall out of the
+  offsets; separate the target size (400) from the hard limit (510): re-tokenising a slice can
+  add a token; structure-aware chunks on this corpus are small (median 144) because sections are
+  short: a trade-off to measure in M11, not to guess; verify a performance claim before writing
+  it down (the "one multi-row INSERT" was really one pipelined executemany: 120 rows, 176 ms);
+  when a test fails, check the test's arithmetic too (heading lines are tokens).
 
 ### F.10 Next recommended action
-1. Start **M8 — Chunking** (fixed, overlap, recursive, heading-aware; token counts with the embedding tokenizer; page/section spans; batched inserts; chunk inspector; reprocess M7 documents, L33).
+1. Start **M9 — Embeddings & Vector Storage** (embedding service: load once, batch, normalise, BGE query prefix; Qdrant collection 384-d cosine + payload indexes; upsert in the ingestion job; ordered deletes across Qdrant/Neon/disk; `reindex.py`).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 
@@ -794,6 +822,7 @@ wired in behind the LLM provider interface in M12.
 - **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
 - **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
 - **Authentication**: Argon2id with no account-enumeration leaks, JWT in an httpOnly/Secure/SameSite=Strict cookie, route guards, session-expiry handling (M5).
+- **Chunking**: four strategies written from scratch with token-exact sizing (the embedding model's tokenizer), page/section metadata from character spans, structure-aware chunks with context headers, batched inserts, chunk inspector and reprocessing (M8).
 - **Secure document ingestion**: upload checks before the body is read, magic bytes, zip-bomb guard, server-side names, hash-while-saving, background processing with a safe status lifecycle, and extraction from PDF/DOCX/Markdown/TXT with measured encoding handling (M7).
 - **Multi-tenant authorization**: ownership in every SQL statement, identical 404s for "missing" and "not yours", a cross-user test matrix; case-insensitive uniqueness via an expression index; PATCH semantics; accessible dialogs (M6).
 
@@ -852,6 +881,10 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 44 | How do you get text out of PDFs and Word files, and what can go wrong? | In Notion (M7) |
 | 45 | How do you handle text files in unknown encodings? | In Notion (M7) |
 | 46 | The app got slow. How did you find out why? | In Notion (M7) |
+| 47 | How do you chunk documents, and why count tokens instead of characters? | In Notion (M8) |
+| 48 | Fixed vs overlapping vs recursive vs structure-aware chunking: which and why? | In Notion (M8) |
+| 49 | How does a chunk know which page or section it came from? | In Notion (M8) |
+| 50 | How do you write many rows to a cloud database efficiently? | In Notion (M8) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

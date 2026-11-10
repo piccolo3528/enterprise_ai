@@ -1,5 +1,6 @@
-"""Document upload, processing, listing, deletion and retry: real PostgreSQL (Neon test branch,
-rolled back), real parsers, files in a temporary folder.
+"""Documents end to end: upload, processing (extraction + chunking), listing, chunks, deletion
+and reprocessing. Real PostgreSQL (Neon test branch, rolled back), real parsers, real tokenizer,
+files in a temporary folder.
 
 Starlette's TestClient runs background tasks before `client.post(...)` returns, so a test sees
 the finished status straight after the upload.
@@ -18,9 +19,14 @@ from sqlalchemy import select
 from app.api.deps import get_db, get_read_db, get_session_factory
 from app.core.config import load_settings
 from app.factory import create_app
-from app.models import Document
+from app.models import Chunk, Document
 from app.services.ingestion.extractors import NO_TEXT
-from app.services.ingestion.pipeline import INTERRUPTED, process_document, recover_interrupted
+from app.services.ingestion.pipeline import (
+    INTERRUPTED,
+    ChunkingConfig,
+    process_document,
+    recover_interrupted,
+)
 from app.services.storage import Storage
 from tests import sample_files
 from tests.helpers import act_as, save
@@ -137,21 +143,29 @@ def test_unprocessable_files_fail_with_a_readable_reason(client, alice, filename
     assert message in document["error_message"]
 
 
-def test_a_failed_document_can_be_retried_and_only_failed_ones(client, alice):
+def test_a_failed_document_can_be_reprocessed(client, alice):
     act_as(client, alice)
     kb_id = new_kb(client)
     upload(client, kb_id, "scan.pdf", sample_files.pdf(""))
-    upload(client, kb_id, "ok.txt", b"Fine text.")
-    failed, ready = sorted(documents(client, kb_id), key=lambda d: d["status"])
+    (failed,) = documents(client, kb_id)
 
-    retried = client.post(f"/api/documents/{failed['id']}/retry")
-    assert retried.status_code == 202 and retried.json()["status"] == "uploaded"
-    # Processed again; same file, so the same outcome.
-    assert {d["id"]: d["status"] for d in documents(client, kb_id)}[failed["id"]] == "failed"
+    queued = client.post(f"/api/documents/{failed['id']}/reprocess")
+    assert queued.status_code == 202 and queued.json()["status"] == "uploaded"
+    # Processed again; same file, so the same outcome, and no chunks.
+    (again,) = documents(client, kb_id)
+    assert (again["status"], again["chunk_count"]) == ("failed", 0)
 
-    not_failed = client.post(f"/api/documents/{ready['id']}/retry")
-    assert not_failed.status_code == 409
-    assert "this one is ready" in not_failed.json()["error"]["message"]
+
+def test_a_document_already_in_progress_cannot_be_queued_twice(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "a.txt", b"Some text.")
+    (document,) = documents(client, kb_id)
+    db.get(Document, uuid.UUID(document["id"])).status = "processing"
+    db.commit()
+    busy = client.post(f"/api/documents/{document['id']}/reprocess")
+    assert busy.status_code == 409
+    assert "already being processed (processing)" in busy.json()["error"]["message"]
 
 
 # --- rejected at upload: nothing is stored -------------------------------------------------------
@@ -231,10 +245,10 @@ def body_without_request_id(response):
     return response.status_code, error
 
 
-def test_bob_cannot_upload_list_delete_or_retry_alices_documents(client, alice, bob, uploads):
+def test_bob_cannot_reach_alices_documents_or_chunks(client, alice, bob, uploads):
     act_as(client, alice)
     kb_id = new_kb(client)
-    upload(client, kb_id, "scan.pdf", sample_files.pdf(""))  # a failed one, so retry applies
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())  # ready, with chunks
     (document,) = documents(client, kb_id)
     files_before = stored_files(uploads)
 
@@ -251,8 +265,16 @@ def test_bob_cannot_upload_list_delete_or_retry_alices_documents(client, alice, 
             client.delete(f"/api/documents/{random_doc}"),
         ),
         (
-            client.post(f"/api/documents/{document['id']}/retry"),
-            client.post(f"/api/documents/{random_doc}/retry"),
+            client.get(f"/api/documents/{document['id']}"),
+            client.get(f"/api/documents/{random_doc}"),
+        ),
+        (
+            client.get(f"/api/documents/{document['id']}/chunks"),
+            client.get(f"/api/documents/{random_doc}/chunks"),
+        ),
+        (
+            client.post(f"/api/documents/{document['id']}/reprocess"),
+            client.post(f"/api/documents/{random_doc}/reprocess"),
         ),
     ]
     for theirs, missing in pairs:
@@ -262,7 +284,8 @@ def test_bob_cannot_upload_list_delete_or_retry_alices_documents(client, alice, 
 
     act_as(client, alice)
     (unchanged,) = documents(client, kb_id)
-    assert (unchanged["id"], unchanged["status"]) == (document["id"], "failed")
+    assert (unchanged["id"], unchanged["status"]) == (document["id"], "ready")
+    assert unchanged["chunk_count"] == document["chunk_count"] > 0
 
 
 # --- background job edge cases -------------------------------------------------------------------
@@ -309,6 +332,101 @@ def test_a_job_for_a_deleted_document_stops_quietly(db, uploads, caplog):
         yield db
 
     caplog.set_level("INFO")
-    process_document(shared_session, Storage(uploads), uuid.uuid4())  # no such document
+    config = ChunkingConfig(embedding_model="BAAI/bge-small-en-v1.5")
+    process_document(shared_session, Storage(uploads), config, uuid.uuid4())  # no such document
     assert "no longer waiting" in caplog.text
     assert "crashed" not in caplog.text
+
+
+# --- chunks (M8) --------------------------------------------------------------------------------
+
+
+def chunk_rows(db, document_id):
+    db.expire_all()
+    query = (
+        select(Chunk).where(Chunk.document_id == uuid.UUID(document_id)).order_by(Chunk.chunk_index)
+    )
+    return list(db.scalars(query))
+
+
+def test_a_processed_markdown_document_has_heading_aware_chunks(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    (document,) = documents(client, kb_id)
+    rows = chunk_rows(db, document["id"])
+    assert document["status"] == "ready"
+    assert document["chunk_count"] == len(rows) > 0
+    assert [r.chunk_index for r in rows] == list(range(len(rows)))
+    assert {str(r.kb_id) for r in rows} == {kb_id}  # copied for KB-filtered search
+    assert {r.strategy for r in rows} == {"heading"}
+    assert all(r.text.startswith("NX-HR-002 v3.0") for r in rows)  # the context header
+
+    page = client.get(f"/api/documents/{document['id']}/chunks").json()
+    assert page["total"] == len(rows)
+    assert [c["chunk_index"] for c in page["items"]] == list(range(len(rows)))
+    leave = next(c for c in page["items"] if "24 days" in c["text"])
+    assert leave["section"] == "4. Leave Types › 4.2 Annual leave – 4.3 Sick leave"
+    assert leave["token_count"] <= 510
+
+
+def test_pdf_chunks_carry_page_numbers(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    pages = [f"Page {n}: " + " ".join(["leave policy text"] * 60) for n in (1, 2, 3)]
+    upload(client, kb_id, "p.pdf", sample_files.pdf(*pages))
+    (document,) = documents(client, kb_id)
+    rows = chunk_rows(db, document["id"])
+    assert {r.strategy for r in rows} == {"recursive"}  # a PDF has no headings
+    assert rows[0].page_start == 1 and rows[-1].page_end == 3
+    assert all(r.page_start <= r.page_end for r in rows)
+
+
+def test_the_chunk_inspector_pages_through_chunks(client, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    (document,) = documents(client, kb_id)
+    url = f"/api/documents/{document['id']}/chunks"
+    first = client.get(url, params={"limit": 1}).json()
+    second = client.get(url, params={"limit": 1, "offset": 1}).json()
+    assert first["total"] == second["total"] == document["chunk_count"]
+    assert first["items"][0]["chunk_index"] == 0 and second["items"][0]["chunk_index"] == 1
+    assert client.get(url, params={"limit": 500}).status_code == 422  # capped at 200
+
+
+def test_reprocessing_replaces_chunks_instead_of_adding_to_them(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    (document,) = documents(client, kb_id)
+    before = {r.id for r in chunk_rows(db, document["id"])}
+
+    assert client.post(f"/api/documents/{document['id']}/reprocess").status_code == 202
+    after = chunk_rows(db, document["id"])
+    assert len(after) == len(before)  # same text, same chunks...
+    assert before.isdisjoint({r.id for r in after})  # ...but a fresh set, not duplicates
+
+
+def test_a_reprocess_that_now_fails_removes_the_old_chunks(client, db, alice, uploads):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "a.txt", b"Some useful text about leave.")
+    (document,) = documents(client, kb_id)
+    assert len(chunk_rows(db, document["id"])) == 1
+    (uploads / kb_id / f"{document['id']}.txt").write_bytes(b"   ")  # now there's no text
+
+    client.post(f"/api/documents/{document['id']}/reprocess")
+    (again,) = documents(client, kb_id)
+    assert (again["status"], again["chunk_count"]) == ("failed", 0)
+    assert chunk_rows(db, document["id"]) == []  # never "failed" with stale chunks
+
+
+def test_deleting_a_document_deletes_its_chunks(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    (document,) = documents(client, kb_id)
+    assert chunk_rows(db, document["id"])
+    client.delete(f"/api/documents/{document['id']}")
+    assert chunk_rows(db, document["id"]) == []

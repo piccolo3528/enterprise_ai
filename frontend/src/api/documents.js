@@ -33,7 +33,22 @@ export async function deleteDocument(id) {
   await api.delete(`/documents/${encodeURIComponent(id)}`);
 }
 
-export async function retryDocument(id) {
-  const { data } = await api.post(`/documents/${encodeURIComponent(id)}/retry`);
+/** Process a failed or ready document again (after a failure, or to rebuild its chunks). */
+export async function reprocessDocument(id) {
+  const { data } = await api.post(`/documents/${encodeURIComponent(id)}/reprocess`);
+  return data;
+}
+
+export async function getDocument(id, { signal } = {}) {
+  const { data } = await api.get(`/documents/${encodeURIComponent(id)}`, { signal });
+  return data;
+}
+
+/** One page of a document's chunks, in order: {items, total, offset, limit}. */
+export async function listChunks(id, { offset = 0, limit = 50, signal } = {}) {
+  const { data } = await api.get(`/documents/${encodeURIComponent(id)}/chunks`, {
+    params: { offset, limit },
+    signal,
+  });
   return data;
 }

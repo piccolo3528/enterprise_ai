@@ -1,7 +1,8 @@
 import { FileText, RotateCw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router";
 
-import { deleteDocument, retryDocument } from "../../api/documents";
+import { deleteDocument, reprocessDocument } from "../../api/documents";
 import { formatBytes, formatDate } from "../../utils/format";
 import Button from "../ui/Button";
 import ErrorBanner from "../ui/ErrorBanner";
@@ -66,7 +67,7 @@ function DeleteDocumentModal({ document, onClose, onDeleted }) {
 }
 
 /** The documents of one knowledge base, with their processing status and actions. */
-export default function DocumentTable({ documents, onChanged, onDeleted }) {
+export default function DocumentTable({ kbId, documents, onChanged, onDeleted }) {
   const [deleting, setDeleting] = useState(null);
   const [retrying, setRetrying] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -75,7 +76,7 @@ export default function DocumentTable({ documents, onChanged, onDeleted }) {
     setRetrying(document.id);
     setActionError(null);
     try {
-      await retryDocument(document.id);
+      await reprocessDocument(document.id);
       onChanged();
     } catch (err) {
       setActionError(err);
@@ -107,9 +108,21 @@ export default function DocumentTable({ documents, onChanged, onDeleted }) {
                   <div className="flex items-start gap-2">
                     <FileText aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-slate-400" />
                     <div className="min-w-0">
-                      <p className="font-medium break-all text-slate-900">{d.original_filename}</p>
+                      {d.status === "ready" ? (
+                        <Link
+                          to={`/knowledge-bases/${kbId}/documents/${d.id}`}
+                          className="font-medium break-all text-slate-900 hover:text-indigo-600 hover:underline"
+                        >
+                          {d.original_filename}
+                        </Link>
+                      ) : (
+                        <p className="font-medium break-all text-slate-900">{d.original_filename}</p>
+                      )}
                       <p className="text-xs text-slate-500 uppercase">
                         {d.file_type}
+                        {d.status === "ready" && (
+                          <span className="normal-case"> · {d.chunk_count} chunks</span>
+                        )}
                         {d.metadata?.document_id && (
                           <span className="normal-case">
                             {" "}

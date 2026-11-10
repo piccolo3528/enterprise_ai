@@ -62,6 +62,7 @@ function DocumentsSection({ kbId, onCountChange }) {
       )}
       {items?.length > 0 && (
         <DocumentTable
+          kbId={kbId}
           documents={items}
           onChanged={reload}
           onDeleted={(gone) => setItems((list) => list.filter((d) => d.id !== gone.id))}
