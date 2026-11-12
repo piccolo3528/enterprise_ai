@@ -4,10 +4,10 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M8 done: backend and frontend skeletons, the database schema on Neon
+> **Project status: M0–M9 done: backend and frontend skeletons, the database schema on Neon
 > (Singapore), accounts, private knowledge bases with a dashboard, document upload with
-> background text extraction (PDF, DOCX, Markdown, TXT), and chunking with a chunk inspector.
-> Next: embeddings and Qdrant (M9).**
+> background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector, and
+> local embeddings stored in Qdrant (with safe deletes and a rebuild script). Next: search (M10).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -336,7 +336,19 @@ frontend.
   python scripts/reprocess_documents.py --all
   ```
 
-### 13. Run the tests *(verified; M8: 162 unit + 67 live backend, 64 frontend)*
+- Every chunk is embedded on your CPU and stored in Qdrant (collection `QDRANT_COLLECTION`,
+  created automatically). The first start after boot takes up to a minute in the background while
+  PyTorch loads; the server answers meanwhile. If the Qdrant collection is lost (free clusters are
+  deleted after 4 idle weeks) or you change `EMBEDDING_MODEL`, rebuild it from PostgreSQL:
+
+  ```powershell
+  python scripts/reindex.py --check   # compare Qdrant with PostgreSQL, change nothing
+  python scripts/reindex.py           # drop, recreate and refill the collection (run while idle)
+  ```
+- A document shown as **Deleting** means the vector database was unreachable during a delete:
+  delete it again to finish.
+
+### 13. Run the tests *(verified; M9: 185 unit + 73 live backend, 65 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)

@@ -1,4 +1,4 @@
-"""Re-run extraction + chunking for existing documents, without the web server.
+"""Re-run extraction, chunking and embedding for existing documents, without the web server.
 
 When to use it:
 - documents uploaded before M8 are "ready" but have no chunks (tracker L33);
@@ -28,8 +28,9 @@ from sqlalchemy import select, update  # noqa: E402
 from app.core.config import load_settings  # noqa: E402
 from app.db.session import build_engine, build_session_factory  # noqa: E402
 from app.models import Document  # noqa: E402
-from app.services.ingestion.pipeline import ChunkingConfig, process_document  # noqa: E402
+from app.services.ingestion.pipeline import IngestionConfig, process_document  # noqa: E402
 from app.services.storage import Storage  # noqa: E402
+from app.services.vector_store import VectorStore, build_qdrant_client  # noqa: E402
 
 
 def main() -> int:
@@ -42,7 +43,9 @@ def main() -> int:
     engine = build_engine(settings.database_url.get_secret_value())
     session_factory = build_session_factory(engine)
     storage = Storage(settings.upload_dir)
-    config = ChunkingConfig.from_settings(settings)
+    config = IngestionConfig.from_settings(settings)
+    qdrant = build_qdrant_client(settings)
+    vectors = VectorStore(qdrant, settings.qdrant_collection)
 
     try:
         with session_factory() as db:
@@ -75,7 +78,7 @@ def main() -> int:
             if not queued:
                 print(f"  skipped {target.id} (it changed meanwhile)")
                 continue
-            process_document(session_factory, storage, config, target.id)
+            process_document(session_factory, storage, vectors, config, target.id)
 
         with session_factory() as db:
             done = db.execute(
@@ -88,6 +91,7 @@ def main() -> int:
         print(f"Done in {time.perf_counter() - started:.1f} s")
         return 0 if all(row.status == "ready" for row in done) else 1
     finally:
+        qdrant.close()
         engine.dispose()
 
 

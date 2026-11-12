@@ -14,11 +14,12 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ServiceUnavailableError
 from app.models import Chunk, Document, KnowledgeBase
 from app.services.ingestion.validation import check_content, display_filename, file_type_of
 from app.services.knowledge_bases import NOT_FOUND as KB_NOT_FOUND
 from app.services.storage import Storage
+from app.services.vector_store import VectorStore
 
 logger = logging.getLogger("app.documents")
 
@@ -126,29 +127,50 @@ def list_documents(db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID) -> list[D
     return [document for _, document in rows if document is not None]
 
 
-def delete_document(
-    db: Session, storage: Storage, owner_id: uuid.UUID, document_id: uuid.UUID
-) -> None:
-    """Database row first (its chunks cascade), then the file.
+INDEX_DELETE_FAILED = (
+    "The search index couldn't be updated right now, so nothing was deleted from it yet. "
+    "Please try deleting again."
+)
 
-    If the file can't be deleted, the leftover is harmless and logged; the reverse order could
-    leave a row pointing at a missing file. (M9 adds a first step: Qdrant points by document_id,
-    ARCHITECTURE §4.11.) A background job still working on this document finds its row gone
-    and stops quietly.
+
+def delete_document(
+    db: Session,
+    storage: Storage,
+    vectors: VectorStore,
+    owner_id: uuid.UUID,
+    document_id: uuid.UUID,
+) -> None:
+    """The ordered delete of ARCHITECTURE §4.11 (D52):
+    mark `deleting` -> Qdrant points -> PostgreSQL row (chunks cascade) -> the file.
+
+    Marking first matters: a background job still indexing this document can only write
+    `ready` while the status is `processing`, so once it sees `deleting` it removes the points it
+    wrote itself, whatever the timing. If Qdrant is unreachable the document stays `deleting`
+    (hidden from search, can't be reprocessed) and deleting it again finishes the job. A file
+    that can't be removed at the end is a harmless, logged leftover.
     """
-    deleted = db.execute(
-        delete(Document)
+    marked = db.execute(
+        update(Document)
         .where(*_owned_document(owner_id, document_id))
+        .values(status="deleting")
         .returning(Document.stored_path, Document.kb_id)
         .execution_options(synchronize_session=False)
     ).one_or_none()
-    if deleted is None:
+    if marked is None:
+        db.rollback()
         raise NotFoundError(DOCUMENT_NOT_FOUND)
+    db.commit()
+    try:
+        vectors.delete_document(document_id)
+    except Exception as exc:  # noqa: BLE001 - Qdrant down or timed out
+        logger.warning("Deleting points of document %s failed: %s", document_id, exc)
+        raise ServiceUnavailableError(INDEX_DELETE_FAILED) from None
+    db.execute(delete(Document).where(Document.id == document_id))
     db.execute(
-        update(KnowledgeBase).where(KnowledgeBase.id == deleted.kb_id).values(updated_at=func.now())
+        update(KnowledgeBase).where(KnowledgeBase.id == marked.kb_id).values(updated_at=func.now())
     )
     db.commit()
-    storage.delete(deleted.stored_path)
+    storage.delete(marked.stored_path)
 
 
 REPROCESSABLE = ("failed", "ready")

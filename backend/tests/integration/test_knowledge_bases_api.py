@@ -14,11 +14,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.api.deps import get_db, get_read_db
-from app.core.config import load_settings
+from app.api.deps import get_db, get_read_db, get_vector_store
 from app.factory import create_app
 from app.models import Conversation, Document, KnowledgeBase, Message, User
-from tests.helpers import act_as, save
+from tests.helpers import act_as, live_settings, save
 
 pytestmark = pytest.mark.live
 
@@ -26,9 +25,10 @@ URL = "/api/knowledge-bases"
 
 
 @pytest.fixture
-def client(db):
-    settings = load_settings()
+def client(db, vector_store):
+    settings = live_settings()
     app = create_app(settings, warm_up=False)
+    app.dependency_overrides[get_vector_store] = lambda: vector_store
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_read_db] = lambda: db
     with TestClient(app, base_url="https://testserver") as c:

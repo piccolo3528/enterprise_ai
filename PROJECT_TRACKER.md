@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-10** · Current milestone: **M8 — Chunking (COMPLETED)** · Next: **M9 — Embeddings & Vector Storage**
+> Last updated: **2026-11-11** · Current milestone: **M9 — Embeddings & Vector Storage (COMPLETED)** · Next: **M10 — Retrieval & Search UI**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -159,7 +159,7 @@ explain the concept back in your own words (or answer the related interview ques
 | 8 | ORM & migrations | Python classes ↔ tables; Alembic versions every schema change | COMPLETED (M4: 6 models, migration `5fb1c162ac1c`, up/down + `alembic check` tested) | ☐ | `app/models/`, `alembic/` |
 | 9 | Password hashing (Argon2id) | Slow, salted, memory-hard hashing, so stolen hashes resist cracking | COMPLETED (M5: ~108 ms/verify measured; rehash on login; no timing leak for unknown emails) | ☐ | `app/core/security.py`, `services/auth.py` |
 | 10 | JWT & cookie sessions | Signed, stateless token in an httpOnly cookie; XSS can't read it | COMPLETED (M5: proven in Chrome: `document.cookie` empty, yet `/me` → 200) | ☐ | `app/core/security.py`, `api/deps.py`, `routes/auth.py` |
-| 11 | Authorization / tenant isolation | Every query scoped to the owner; vector search filtered by an owned `kb_id` | IN PROGRESS (M6: SQL side done: owner in every statement, identical 404s, cross-user test matrix; Qdrant filter in M9) | ☐ | `services/knowledge_bases.py`, `api/deps.py`, `vector_store.py` |
+| 11 | Authorization / tenant isolation | Every query scoped to the owner; vector search filtered by an owned `kb_id` | COMPLETED (M6: owner in every SQL statement, identical 404s; M9: every vector search requires `owner_id` + `kb_id` filters, proven with identical content in two users' KBs) | ☐ | `services/knowledge_bases.py`, `api/deps.py`, `vector_store.py` |
 | 12 | Secure file upload | Allow-list, magic bytes, size limits, server-generated paths | COMPLETED (M7: size checked before the body is read; zip-bomb guard; nothing left on disk after a rejection) | ☐ | `routes/documents.py`, `storage.py`, `ingestion/validation.py` |
 | 13 | Text extraction | Getting clean text + page structure out of PDF/DOCX/TXT | COMPLETED (M7: PDF per page, DOCX headings + tables in order, Markdown headings + front matter, TXT encodings; all 22 corpus docs in 0.13 s) | ☐ | `ingestion/extractors.py` |
 | 14 | Text cleaning | Normalizing whitespace and Unicode, de-hyphenation, removing noise | COMPLETED (M7: NFC not NFKC, ligatures, invisible characters, hyphenated line breaks) | ☐ | `ingestion/cleaning.py` |
@@ -170,13 +170,13 @@ explain the concept back in your own words (or answer the related interview ques
 | 19 | Chunk size/overlap trade-offs | Small = precise but loses context; large = context but diluted vectors | IN PROGRESS (M8: strategies measured on the corpus by size; retrieval quality compared in M11) | ☐ | `evaluation/compare_chunking.py` |
 | 20 | Metadata preservation | Each chunk keeps doc/page/section, which is what makes citations possible | COMPLETED (M8: character spans mapped back to pages and heading paths) | ☐ | `ingestion/chunking.py` |
 | 21 | Tokens & tokenization | Models see subword tokens, not characters; limits are counted in tokens | COMPLETED (M8: bge WordPiece tokenizer, offsets back to the original text; "NX-HR-002" = 7 tokens) | ☐ | `ingestion/tokens.py` |
-| 22 | Embeddings | Text → fixed-length vector where similar meanings sit close together | IN PROGRESS (M1 demo: `download_models.py`) | ☐ | `scripts/download_models.py` → `embeddings.py` (M9) |
-| 23 | Vector dimensions | Number of coordinates (384 for bge-small); affects memory and speed | NOT STARTED | ☐ | `embeddings.py` |
-| 24 | Cosine similarity | cos θ = a·b / (‖a‖‖b‖); equals the dot product for normalized vectors | IN PROGRESS (M1 demo: cosine computed by hand == dot) | ☐ | `scripts/download_models.py` → tests (M9) |
-| 25 | Asymmetric retrieval (query prefix) | BGE queries get an instruction prefix; documents don't | NOT STARTED | ☐ | `embeddings.py` |
-| 26 | Vector database & ANN (HNSW) | Approximate nearest-neighbour index trades exactness for speed | NOT STARTED | ☐ | `vector_store.py` |
-| 27 | Metadata filtering | Restricting search to a KB/document via payload filters | NOT STARTED | ☐ | `vector_store.py`, `retrieval.py` |
-| 28 | Derived data & reindexing | Vectors are derived from PostgreSQL text, so Qdrant can be rebuilt | NOT STARTED | ☐ | `scripts/reindex.py` |
+| 22 | Embeddings | Text → fixed-length vector where similar meanings sit close together | COMPLETED (M9: bge-small on CPU, loaded once, batches of 16, ~0.37 ms/token) | ☐ | `services/embeddings.py` |
+| 23 | Vector dimensions | Number of coordinates (384 for bge-small); affects memory and speed | COMPLETED (M9: collection created from the model's dimension; a mismatching collection is refused with "rebuild with reindex.py") | ☐ | `services/vector_store.py` |
+| 24 | Cosine similarity | cos θ = a·b / (‖a‖‖b‖); equals the dot product for normalized vectors | COMPLETED (M9: written by hand; equals the dot product for our vectors and Qdrant's score to 1e-4) | ☐ | `services/embeddings.py`, `tests/unit/test_embeddings.py` |
+| 25 | Asymmetric retrieval (query prefix) | BGE queries get an instruction prefix; documents don't | IN PROGRESS (M9: prefix on queries only, unit-tested; its benefit is measured in M11: no top-1 change on 3 live questions) | ☐ | `services/embeddings.py` |
+| 26 | Vector database & ANN (HNSW) | Approximate nearest-neighbour index trades exactness for speed | IN PROGRESS (M9: Qdrant collection with default HNSW; filtered search ~152 ms from India to Sydney. Tuning/recall vs exact search: M11) | ☐ | `services/vector_store.py` |
+| 27 | Metadata filtering | Restricting search to a KB/document via payload filters | COMPLETED (M9: indexed `kb_id` (tenant), `owner_id`, `document_id`, `doc_status`; Qdrant Cloud's strict mode refuses filters on unindexed fields) | ☐ | `services/vector_store.py` |
+| 28 | Derived data & reindexing | Vectors are derived from PostgreSQL text, so Qdrant can be rebuilt | COMPLETED (M9: `reindex.py` rebuilt the user's 74 points in 70 s; `--check` compares per document) | ☐ | `scripts/reindex.py` |
 | 29 | Top-K & similarity thresholds | How many results to fetch; minimum score to count as relevant | NOT STARTED | ☐ | `retrieval.py` |
 | 30 | Keyword (lexical) search | Exact-term matching (PostgreSQL FTS); good for codes, names, numbers | IN PROGRESS (M1: FTS verified on Neon) | ☐ | `scripts/verify_setup.py` → `keyword_search.py` (M10) |
 | 31 | Hybrid search & RRF | Fusing dense and sparse rankings by rank, not raw score | NOT STARTED | ☐ | `retrieval.py` |
@@ -215,6 +215,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 66 | Heading-aware (structure-aware) chunking | Chunks follow the document's sections, never cross a top-level one, merge tiny siblings, and carry a context header (doc id + section) | COMPLETED (M8) | ☐ | `ingestion/chunking.py` (`heading_spans`) |
 | 67 | Batched writes / pipelining | Send many rows in one driver call; the driver pipelines them instead of one round trip each | COMPLETED (M8: 120 rows in 176 ms on Neon) | ☐ | `ingestion/pipeline.py` (`_store`) |
 | 65 | Polling without pile-ups | A `setTimeout` chain (next request only after the last answer) that stops when nothing is pending | COMPLETED (M7) | ☐ | `hooks/useDocuments.js` |
+| 68 | Consistency across two stores without a transaction | Order the writes and mark state first (`deleting`), so every failure or race leaves something harmless and repairable | COMPLETED (M9: ready only after Qdrant confirms; deletes Qdrant → PostgreSQL → disk; races and outages tested live) | ☐ | `ingestion/pipeline.py`, `services/documents.py` |
+| 69 | Measure before adding a lock | Shared CPU model: a lock made searches wait 4–13 s behind a document (unfair lock); without one, 129 ms median and no errors | COMPLETED (M9) | ☐ | `services/embeddings.py` |
 | 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
 ---
@@ -369,17 +371,18 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M7.
 - **Testing:** 18 chunking unit tests (incl. the real tokenizer on NX-HR-002) + 4 route guards + 7 live API tests + 4 frontend tests (§F.8).
 
-### M9 — Embeddings & Vector Storage · `NOT STARTED`
+### M9 — Embeddings & Vector Storage · `COMPLETED` (2026-11-11)
 - **Objective:** Embed chunks locally and store/search them in Qdrant.
 - **Tasks:**
-  - [ ] Embedding service (load once, batch, normalize, BGE query prefix)
-  - [ ] Hand-written cosine similarity + test
-  - [ ] Qdrant collection (384-d, cosine), payload indexes; upsert; delete by document/KB
-  - [ ] Pipeline completion + rollback; ordered deletion across Neon/Qdrant/disk
-  - [ ] `backend/scripts/reindex.py` (rebuild Qdrant from Neon chunks)
-- **Expected output:** points = `chunk_count`; delete removes all; reindex reproduces the collection.
+  - [x] Embedding service (`services/embeddings.py`): bge-small loaded once per process (startup warm-up), batches of 16, normalized vectors, BGE prefix on queries only; no lock around encoding (measured, D49)
+  - [x] Hand-written cosine similarity + tests (hand-computed values; = dot product for our vectors; = Qdrant's score)
+  - [x] Qdrant (`services/vector_store.py`): one collection, 384-d cosine, created at startup if missing (a mismatching one is refused); payload indexes `kb_id` (tenant), `owner_id`, `document_id`, `doc_status`; batched upsert (`wait=True`); delete by document (optionally keeping the fresh ids) or KB; count; search that requires owner + KB (D50)
+  - [x] Pipeline: embed with no DB connection held → upsert new points → delete the document's older points → one PostgreSQL transaction marks it ready; if it vanished meanwhile the job removes its points; Qdrant down → `failed`, no chunks (D51)
+  - [x] Ordered deletes: mark `deleting` → Qdrant → PostgreSQL → disk, for documents and knowledge bases; Qdrant down → 503 and deleting again finishes (D52); UI shows "Deleting" + hint
+  - [x] `scripts/reindex.py` (rebuild from Neon chunks; `--check` compares points per document); `reprocess_documents.py` now embeds too (D53)
+- **Expected output:** points = `chunk_count`; delete removes all; reindex reproduces the collection. **Achieved** (live tests; the user's 74 chunks → 74 points; Chrome upload → 2 points → delete → 0).
 - **Dependencies:** M8.
-- **Testing:** unit (similarity math, prefix only on queries); integration (counts, KB isolation) using a `chunks_test` collection.
+- **Testing:** 185 unit (+23: cosine, prefix, real model, VectorStore on in-memory Qdrant) · 73 live (+6 new, 4 extended, on the `chunks_test` collection) · 65 frontend (+1) (§F.8).
 
 ### M10 — Retrieval & Search UI · `NOT STARTED`
 - **Objective:** Semantic, keyword and hybrid search with filters, top-K and thresholds.
@@ -489,13 +492,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
   retry, delete; Markdown front matter kept as metadata.
 - Chunking (M8): four strategies with token-exact sizes, page/section metadata, chunk inspector,
   reprocessing (endpoint and script).
-- Next: embeddings and Qdrant (M9).
+- Embeddings & vector storage (M9): every ready chunk has exactly one Qdrant point; deletes remove
+  vectors, rows and files in a safe order; `reindex.py` rebuilds or checks the collection.
+- Next: retrieval and the search page (M10).
 
 ### F.2 In progress
-- Nothing. M9 (embeddings & vector storage) is next.
+- Nothing. M10 (retrieval & search UI) is next.
 
 ### F.3 Remaining functionality
-- Everything in M9–M17 (M18 optional).
+- Everything in M10–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -541,6 +546,12 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L35 | Heading-aware chunks are small on this corpus (median 144 tokens vs a 400 target) | Many top-level sections are short and chunks never cross them: more chunks, less context each | Deliberate (precision, clean citations); M11 compares it with recursive (median 357) on retrieval metrics before choosing the default |
 | L36 | Chunk text includes the heading lines and (heading-aware) a context header | Section names are repeated across chunks; keyword search for a section title matches all its chunks | Intended: the embedding and the LLM see where text comes from; revisit if M11 shows header noise |
 | L37 | Chunk settings apply to new processing only | After changing `CHUNK_*`, old documents keep their old chunks | Run `scripts/reprocess_documents.py --all` (or Reprocess per document) |
+| L38 | Every server start (and every `--reload`) imports PyTorch and loads the model in the background: 24 s warm, 45–89 s cold on this laptop | An upload in that window waits for the model; CPU is busy meanwhile | Runs in the background warm-up, so the server answers at once; a lighter ONNX runtime is the alternative if it becomes a problem |
+| L39 | `reindex.py` drops and recreates the collection | Semantic search returns nothing during a rebuild (70 s for 74 chunks); a job indexing at the same time can be wiped | Run it while idle; it ends with a per-document check that reports any such document. Aliases (build `chunks_v2`, then switch) would remove the gap |
+| L40 | Possible orphan points: a document that failed while Qdrant was down; an upload accepted into a KB in the moment between "mark deleting" and the cascade delete | Points whose chunks/KB no longer exist | Harmless: search must join to PostgreSQL chunks of `ready` documents (M10) and can't reach a deleted KB; the next reprocess/delete/reindex removes them; `reindex.py --check` lists them |
+| L41 | Dense retrieval alone (measured on the user's data, 3 questions) | The BGE prefix changed no top result; an archived v2.0 passage ranked 3rd; "sick during my holiday" found no sick-leave passage | Prefix benefit measured in M11; `doc_status` filter (S4) in M14; keyword + hybrid search in M10; reranking in M14 |
+| L42 | Startup recovery could mark a document failed whose reprocess was clicked in the first seconds after a restart (before recovery ran) | A retry right after a restart shows "interrupted" | Pre-existing since M7, noticed in M9; retry again. Fix: record the queue time, not `created_at` |
+| L43 | One unexplained "session expired" (401) in Chrome on the first KB delete in M9 | The delete didn't happen; the user was sent to sign in | Not reproduced: the second attempt with network capture returned 204. The dev server logs only to its console, so the failing request couldn't be identified. Watch for it |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -591,6 +602,12 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D46 | 2026-11-10 | Sizes counted with the embedding model's `tokenizer.json` via `tokenizers` (offsets into the original text); 400 = target, 510 = hard limit enforced separately | Exact counts; casing/formatting kept (the tokenizer lowercases, offsets don't); re-tokenising a slice can add a token (fixed hit 401) | Characters/words (silently overflow 512); `transformers` AutoTokenizer (heavier import) | Accepted (M8) |
 | D47 | 2026-11-10 | Strategies return character **spans** into one assembled text (with heading lines) + a segment map, not strings | Pages and sections for any chunk come from its offsets; one code path for all four strategies | Each strategy tracking metadata itself | Accepted (M8) |
 | D48 | 2026-11-10 | Chunks are written in the job's final transaction (ready + delete old + insert new); `/retry` became `/reprocess` (failed or ready) | A document is never "ready" without chunks or with two sets; reprocessing doubles as "rebuild after changing settings" | Separate chunking job; keep retry failed-only | Accepted (M8) |
+| D49 | 2026-11-11 | Embeddings: sentence-transformers bge-small on CPU, one instance per process (startup warm-up), normalized, BGE prefix on queries only, batches of 16, **no lock** around encoding | Measured: batch size 4–32 changes speed by < 10 % on CPU (144–159 ms per 400-token chunk); with a lock a search waited 4–13 s behind a document, without one 129 ms median and no errors from 4 concurrent threads | Lock per call or per batch; GPU/paid embedding APIs (excluded); ONNX runtime (lighter, later if needed) | Accepted (M9) |
+| D50 | 2026-11-11 | One Qdrant collection; point id = chunk id; payload `kb_id, document_id, owner_id, chunk_index, pages` + front-matter `doc_code/doc_version/doc_status` (renamed: front matter's `document_id` is a policy code); indexes on every filtered field; search requires owner **and** KB | Qdrant's multitenancy pattern; text stays only in PostgreSQL; Qdrant Cloud strict mode rejects unindexed filters (found by the live tests); owner filter = second lock behind the SQL ownership check | Collection per KB; text in the payload; default `m=0`/`payload_m` per-tenant HNSW (worth it at scale, not at 74 points) | Accepted (M9) |
+| D51 | 2026-11-11 | Ingest order: embed → upsert new points → delete the document's other points → one PostgreSQL transaction (ready + replace chunks); vanished meanwhile → remove our points; Qdrant error → failed + no chunks | `ready` ⇒ vectors exist; no intermediate "chunks without vectors" state in PostgreSQL; a search never sees a reprocessed document with zero points. Refines §4.11's "chunks → Qdrant → ready" (same guarantee, one transaction fewer) | Chunks to PostgreSQL first, then Qdrant, then mark ready (two transactions) | Accepted (M9) |
+| D52 | 2026-11-11 | Deletes: mark `deleting` (document, or all documents of the KB) → Qdrant → PostgreSQL → disk; Qdrant failure → 503, the document stays `deleting`, deleting again completes | The mark stops a still-running job from writing `ready`, so it removes its own points (race tested live); nothing user-visible is half-deleted | Delete rows first and clean Qdrant later (orphans); restore the old status on failure | Accepted (M9) |
+| D53 | 2026-11-11 | `reindex.py` recreates the collection and re-embeds every chunk of every ready document; `--check` compares points per document with PostgreSQL | PostgreSQL is the system of record, so Qdrant is disposable (free clusters are deleted after 4 weeks idle) | Incremental repair only; alias swap (zero downtime, more moving parts) | Accepted (M9) |
+| D54 | 2026-11-11 | Tests: VectorStore unit tests on qdrant-client's in-memory mode; live tests on the real cluster's `chunks_test` collection, deleted before and after the session (refuses to run if it is the app's collection) | Fast unit tests with the real client API; live tests catch what memory mode doesn't (strict mode) | A fake client; the dev collection | Accepted (M9) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -665,6 +682,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-10 | M8 | `scripts/reprocess_documents.py` on the dev database | ✔ | The user's 5 pre-M8 documents (NX-HR-001 v4.0, NX-HR-002 v2.0/v3.0, NX-HR-003 v1.0/v2.0) → 13 + 17 + 16 + 12 + 16 = 74 chunks, 5.3 s |
 | 2026-11-10 | M8 | `npm test` / `npm run build` | ✔ 64 passed / ✔ | +4: table links ready documents + chunk count, inspector shows section/pages/tokens + Load more, "No chunks" + Reprocess for pre-M8 documents, not found. Build 379 kB JS (120 kB gzipped) |
 | 2026-11-10 | M8 | Chrome, read-only on the user's own account | ✔ | Table shows `13–17 chunks` per document and `v2.0 · superseded`; inspector for NX-HR-002 v3.0: 16 chunks · heading chunking · 218 tokens on average; chunk #0 = document-control block with header; merged section labels as designed; 0 over 510; chunks endpoint ~190 ms. No data changed (no Reprocess clicked, no uploads) |
+| 2026-11-11 | M9 | Embedding benchmark (scratch, real model, 12 CPUs) | ℹ | PyTorch import 89 s cold / 24 s warm; model load 0.5–0.8 s; 400-token chunks 144–159 ms each for batch 4–32 (noise), 144-token chunks 39–47 ms; query 28–42 ms → ~0.37 ms/token. 4 threads × 5 concurrent encodes: 0 errors |
+| 2026-11-11 | M9 | Lock vs no lock while a 96-chunk document embeds | ✔ decided | No lock: queries 129 ms median (max 220), document 11.4 s. Lock (batch 16): one query waited 13.5 s; lock (batch 8): 3.9 s median, 6.9 s max → D49 |
+| 2026-11-11 | M9 | `pytest` (unit) | ✔ 185 passed | +23: cosine (hand-computed, angle only, zero/mismatch errors), prefix on queries only + batch/normalize options (fake model), only English BGE gets a prefix, real model (384 numbers of length 1, cosine = dot, relevant > unrelated by > 0.1, prefix moves the query vector), VectorStore on in-memory Qdrant (create once, wrong dimension refused, 2-batch upsert + counts, same id overwrites, delete keeping fresh ids, KB delete, no-collection no-ops, search needs owner + KB and scores = cosine, recreate), startup warm-up incl. model + collection |
+| 2026-11-11 | M9 | `pytest -m live` (Neon test branch + Qdrant `chunks_test`) | ✔ 73 passed | First run 2 failed: Qdrant Cloud strict mode, 400 "Index required but not found for owner_id" (in-memory mode doesn't enforce it) → `owner_id` indexed. New: one point per chunk with the exact payload; search confined to one owner's KB (identical text in Bob's KB never returned, cross ids → nothing), best hit = the right passage; Qdrant score = hand cosine (1e-4); Qdrant down during ingest → failed, 0 chunks, reprocess → ready with points; Qdrant down during delete → 503, `deleting`, reprocess 409, delete again → 204 and 0 points; **document deleted while being indexed** → stays `deleting`, 0 chunks, 0 points. Extended: delete document/KB removes points, reprocess replaces points, failed reprocess leaves 0 points |
+| 2026-11-12 | M9 | Final full live run | ⚠ then ✔ | First final run: 72 passed, 1 failed (`/api/health` hit its 15 s check timeout) and the run took 21 min instead of ~4: the network was slow again (L34). Re-run on a healthy network (google.com 0.55 s): health test 3/3 in 4.3 s, full suite **73 passed in 4 min 4 s** |
+| 2026-11-11 | M9 | Dev environment | ✔ | Server warm-up created `chunks` (384-d cosine, 4 indexes); `reindex.py --check` found the 5 pre-M9 documents with 0 points; `reindex.py`: **74 chunks of 5 documents in 70 s** (model load 45 s cold) → check OK |
+| 2026-11-11 | M9 | Read-only semantic search on the user's KB "HR Policies" | ℹ | "carry forward" → §6.1 Carry-forward (0.789) first; "another country" → remote-work §5 sections; filtered search **~152 ms** (first call 548 ms); prefix vs no prefix: same top-1 for all 3 questions; archived v2.0 passage 3rd; "sick during my holiday" weak (L41) |
+| 2026-11-11 | M9 | `npm test` / `npm run build` | ✔ 65 passed / ✔ | +1: a delete that gets 503 shows the server's message, the row turns "Deleting" with a hint, deleting again completes. Build 380 kB JS (120 kB gzipped) |
+| 2026-11-11 | M9 | Chrome on the user's servers, throwaway account | ✔ | Upload of a 2-section Markdown policy → Ready, "2 chunks · NX-TEST-009 v1.0 · current"; Qdrant: 2 points for the KB with `doc_code/doc_version/doc_status` payload; KB delete → 204, 0 chunks, 0 points, upload folder gone; user's 74 points untouched (`--check` OK). First delete attempt ended on "session expired" without deleting (not reproduced, L43). Test account deleted; scratch credential file removed. The user's own session had already expired, so nothing of theirs was touched |
 | 2026-11-10 | M7 | PyMuPDF 2.1 install inspected | ℹ changed | It pulled `onnxruntime`, `pymupdf4llm`, `pymupdf_layout`; uninstalled and pinned 1.28.2 (no dependencies); `pip check` clean (D40) |
 | 2026-11-10 | M7 | `pytest` (unit) | ✔ 140 passed | +63: filenames (path traversal, Windows paths, control chars, length), extension allow-list, magic bytes (fake PDF, PDF-as-DOCX, legacy .doc, PNG-as-TXT, non-Word ZIP), **zip bomb** (< 1 MB → 300 MB declared) refused, empty file, storage (hash while saving, size limit leaves nothing, no path escape), 11 cleaning cases, PDF per page + blank page skipped, scanned PDF → OCR message, encrypted PDF, damaged PDF/DOCX, DOCX headings + table order, TXT in UTF-8/BOM/UTF-16/cp1252 + Cyrillic cp1251, Markdown front matter + heading paths + code fence, YAML `!!python/object` refused, route guards (401, malformed id 404), startup recovery runs after warm-up |
 | 2026-11-10 | M7 | Encoding detection measured | ✔ fixed | charset-normalizer picked cp1257 / cp852 / cp1250 for three short cp1252 samples (garbling accents and curly quotes) → D42; first threshold (20%) failed on an accent-dense sentence (21%) → 30% with the measured spread recorded in code |
@@ -701,6 +727,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **M6:** no new dependencies (backend or frontend). Neon `production` and `test` are at migration `e0b6121b0338`.
 **Added in M7:** pymupdf 1.28.2 (pinned < 2, D40), python-docx 1.2.0 (lxml 6.1.3), python-multipart 0.0.33; charset-normalizer 3.5.2 and PyYAML 6.0.3 now declared directly. Frontend: none.
 **M8:** tokenizers 0.23.3 and huggingface-hub 2.4.0 now declared directly (already installed via sentence-transformers). New setting `CHUNK_STRATEGY` (default `auto`).
+**M9:** no new dependencies (sentence-transformers, torch and qdrant-client were installed in M1). Qdrant Cloud collection `chunks` (384-d cosine; indexes `kb_id` tenant, `owner_id`, `document_id`, `doc_status`), 74 points. Live tests use `chunks_test` (deleted after each run). No new settings.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -785,9 +812,18 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   short: a trade-off to measure in M11, not to guess; verify a performance claim before writing
   it down (the "one multi-row INSERT" was really one pipelined executemany: 120 rows, 176 ms);
   when a test fails, check the test's arithmetic too (heading lines are tokens).
+- **M9:** measure before choosing knobs: batch size barely matters on CPU, and a lock (my
+  instinct for a shared model) made searches wait 4–13 s because Python locks aren't fair;
+  with two stores and no transaction, *order* is the safety mechanism: write vectors before
+  saying `ready`, mark `deleting` before deleting, and every crash leaves something harmless;
+  test the races deliberately (a fake embedder that deletes the document mid-job); the
+  in-memory test double hid a real rule (Qdrant Cloud strict mode needs an index for every
+  filtered field): keep a live suite; don't repeat a claim you haven't measured (the BGE prefix
+  changed no top result on 3 questions, so it's an M11 question now); Windows takes ~2 s to
+  refuse a connection to a closed localhost port.
 
 ### F.10 Next recommended action
-1. Start **M9 — Embeddings & Vector Storage** (embedding service: load once, batch, normalise, BGE query prefix; Qdrant collection 384-d cosine + payload indexes; upsert in the ingestion job; ordered deletes across Qdrant/Neon/disk; `reindex.py`).
+1. Start **M10 — Retrieval & Search UI** (dense search via Qdrant joined to PostgreSQL chunks of ready documents; PostgreSQL full-text search; Reciprocal Rank Fusion by hand; `POST /api/knowledge-bases/{id}/search` with `semantic|keyword|hybrid`; Search page with mode toggle, document filter and result cards).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 
@@ -822,6 +858,7 @@ wired in behind the LLM provider interface in M12.
 - **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
 - **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
 - **Authentication**: Argon2id with no account-enumeration leaks, JWT in an httpOnly/Secure/SameSite=Strict cookie, route guards, session-expiry handling (M5).
+- **Embeddings & vector storage**: local CPU embeddings loaded once (measured: no lock, batch 16), hand-written cosine, Qdrant with indexed tenant filters that require owner + KB, ordered writes/deletes across Qdrant/PostgreSQL/disk with races and outages tested live, and a rebuild/check script (M9).
 - **Chunking**: four strategies written from scratch with token-exact sizing (the embedding model's tokenizer), page/section metadata from character spans, structure-aware chunks with context headers, batched inserts, chunk inspector and reprocessing (M8).
 - **Secure document ingestion**: upload checks before the body is read, magic bytes, zip-bomb guard, server-side names, hash-while-saving, background processing with a safe status lifecycle, and extraction from PDF/DOCX/Markdown/TXT with measured encoding handling (M7).
 - **Multi-tenant authorization**: ownership in every SQL statement, identical 404s for "missing" and "not yours", a cross-user test matrix; case-insensitive uniqueness via an expression index; PATCH semantics; accessible dialogs (M6).
@@ -838,22 +875,22 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 1 | Walk me through your RAG pipeline end to end. | After M12 |
 | 2 | Why RAG instead of fine-tuning? | After M12 |
 | 3 | How did you choose chunk size and overlap? Show data. | After M11 |
-| 4 | What is an embedding? What does cosine similarity measure, and why normalize? | After M9 |
+| 4 | What is an embedding? What does cosine similarity measure, and why normalize? | In Notion (M9) |
 | 5 | Why hybrid search? When does keyword beat semantic? | After M10 |
 | 6 | What is Reciprocal Rank Fusion, and why not add scores? | After M10 |
 | 7 | Bi-encoder vs cross-encoder: why not cross-encode everything? | After M14 |
 | 8 | How do you stop the model hallucinating? | After M12 |
 | 9 | How do you handle prompt injection in retrieved documents? | After M12 |
-| 10 | How do you guarantee one user can't retrieve another user's documents? | After M9 |
+| 10 | How do you guarantee one user can't retrieve another user's documents? | In Notion (M9) |
 | 11 | Define Recall@K, Precision@K and MRR. How did you measure retrieval? | After M11 |
 | 12 | How do you measure faithfulness? Limits of LLM-as-judge? | After M15 |
 | 13 | The context window is 1M tokens, so why not send everything? | After M14 |
 | 14 | How do follow-up questions work? | After M13 |
 | 15 | How do you handle LLM rate limits and outages? | After M12 |
-| 16 | How do you keep PostgreSQL and Qdrant consistent? | After M9 |
+| 16 | How do you keep PostgreSQL and Qdrant consistent? | In Notion (M9) |
 | 17 | How would you scale to 1M documents / 1,000 users? | After M17 |
 | 18 | Why not LangChain? | Draft below |
-| 19 | What is HNSW, and what does ANN trade off? | After M9 |
+| 19 | What is HNSW, and what does ANN trade off? | In Notion (📚 concept; default HNSW used in M9, tuning in M11) |
 | 20 | Why stream responses, and why are citations sent last? | After M13 |
 | 21 | Why use both PostgreSQL and a vector database? Why not pgvector? | Draft below |
 | 22 | What is connection pooling? What changes with PgBouncer in transaction mode? | Draft below |
@@ -885,6 +922,9 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 48 | Fixed vs overlapping vs recursive vs structure-aware chunking: which and why? | In Notion (M8) |
 | 49 | How does a chunk know which page or section it came from? | In Notion (M8) |
 | 50 | How do you write many rows to a cloud database efficiently? | In Notion (M8) |
+| 51 | If your vector database were lost tomorrow, what would you do? | In Notion (M9) |
+| 52 | Several requests share one embedding model. Do you need a lock? | In Notion (M9) |
+| 53 | What did a test double hide that a live test caught? | In Notion (M9) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

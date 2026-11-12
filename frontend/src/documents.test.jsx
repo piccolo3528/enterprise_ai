@@ -207,6 +207,38 @@ describe("document actions", () => {
     expect(await screen.findByRole("heading", { name: "No documents yet" })).toBeInTheDocument();
   });
 
+  it("shows a delete that couldn't finish as Deleting, and deleting again completes it", async () => {
+    listDocuments
+      .mockResolvedValueOnce([doc()])
+      .mockResolvedValueOnce([doc({ status: "deleting" })])
+      .mockResolvedValue([]);
+    deleteDocument
+      .mockRejectedValueOnce(
+        new ApiError({
+          status: 503,
+          code: "service_unavailable",
+          message: "The search index couldn't be updated right now.",
+        }),
+      )
+      .mockResolvedValue();
+    openPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Delete leave-policy.md" }));
+    let dialog = screen.getByRole("dialog", { name: 'Delete "leave-policy.md"?' });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "The search index couldn't be updated right now.",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(await (await table()).findByText("Deleting")).toBeInTheDocument();
+    expect(screen.getByText(/Delete it again to complete it/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete leave-policy.md" }));
+    dialog = screen.getByRole("dialog", { name: 'Delete "leave-policy.md"?' });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(deleteDocument).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("heading", { name: "No documents yet" })).toBeInTheDocument();
+  });
+
   it("offers a retry when the list can't be loaded", async () => {
     listDocuments
       .mockRejectedValueOnce(

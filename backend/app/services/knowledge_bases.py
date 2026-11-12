@@ -11,6 +11,7 @@ both are "not found" (404), so the API never confirms that someone else's id is 
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -18,8 +19,11 @@ from sqlalchemy import ColumnElement, Select, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, ServiceUnavailableError
 from app.models import Conversation, Document, KnowledgeBase
+from app.services.vector_store import VectorStore
+
+logger = logging.getLogger("app.knowledge_bases")
 
 NOT_FOUND = "Knowledge base not found."
 _NAME_INDEX = "uq_knowledge_bases_owner_id_lower_name"
@@ -139,14 +143,37 @@ def update_knowledge_base(
     return KnowledgeBaseSummary(*row)
 
 
-def delete_knowledge_base(db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID) -> None:
-    """Delete a knowledge base and, through ON DELETE CASCADE, its documents, chunks,
-    conversations and messages: one statement, scoped to the owner.
+INDEX_DELETE_FAILED = (
+    "The search index couldn't be updated right now, so the knowledge base wasn't deleted. "
+    "Please try again."
+)
 
-    The route then removes the upload folder (M7). M9 adds the first step of the ordered delete
-    in ARCHITECTURE §4.11: Qdrant points by kb_id -> PostgreSQL rows -> the upload folder, so a
-    failure part-way leaves only harmless leftovers.
+
+def delete_knowledge_base(
+    db: Session, vectors: VectorStore, owner_id: uuid.UUID, kb_id: uuid.UUID
+) -> None:
+    """The ordered delete of ARCHITECTURE §4.11 (D52):
+    mark its documents `deleting` -> Qdrant points by kb_id -> PostgreSQL rows -> (route) folder.
+
+    Marking the documents first stops background jobs in this knowledge base from writing
+    `ready`, so they remove their own points instead of leaving orphans. The final DELETE
+    cascades to documents, chunks, conversations and messages, scoped to the owner.
     """
+    owned = db.scalar(
+        select(KnowledgeBase.id).where(
+            KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id
+        )
+    )
+    if owned is None:
+        db.rollback()
+        raise NotFoundError(NOT_FOUND)
+    db.execute(update(Document).where(Document.kb_id == kb_id).values(status="deleting"))
+    db.commit()
+    try:
+        vectors.delete_knowledge_base(kb_id)
+    except Exception as exc:  # noqa: BLE001 - Qdrant down or timed out
+        logger.warning("Deleting points of knowledge base %s failed: %s", kb_id, exc)
+        raise ServiceUnavailableError(INDEX_DELETE_FAILED) from None
     deleted = db.execute(
         delete(KnowledgeBase)
         .where(KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id)

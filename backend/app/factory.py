@@ -23,10 +23,11 @@ from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.db.session import build_engine, build_read_session_factory, build_session_factory
 from app.db.session import warm_up as warm_up_database
+from app.services.embeddings import get_embedder
 from app.services.health import app_version
 from app.services.ingestion.pipeline import recover_interrupted
 from app.services.ingestion.tokens import get_tokens
-from app.services.vector_store import build_qdrant_client
+from app.services.vector_store import VectorStore, build_qdrant_client
 
 logger = logging.getLogger("app")
 
@@ -40,12 +41,12 @@ async def _warm_up(name: str, fn: Callable[[], object]) -> None:
         logger.warning("%s warm-up failed (%s); requests will retry", name, type(exc).__name__)
 
 
-async def _warm_up_services(
-    app: FastAPI, collection: str, embedding_model: str, started_at: datetime
-) -> None:
-    """Open the first Neon connection (~4-5 s) and the first Qdrant HTTPS connection (~0.8 s)
-    concurrently, so neither cost lands on a user's first request. Once the database is up,
-    documents whose processing a restart interrupted are marked failed (retryable)."""
+async def _warm_up_services(app: FastAPI, embedding_model: str, started_at: datetime) -> None:
+    """Open the first Neon connection (~4-5 s), load the tokenizer and the embedding model
+    (~25 s: importing PyTorch) concurrently, so none of it lands on a user's first request.
+    Once the database is up, documents whose processing a restart interrupted are marked failed
+    (retryable). Once the model is loaded, the Qdrant collection is created if missing (its
+    dimension comes from the model)."""
 
     async def database() -> None:
         await _warm_up("Database pool", lambda: warm_up_database(app.state.engine))
@@ -54,9 +55,18 @@ async def _warm_up_services(
         except Exception as exc:  # noqa: BLE001 - startup continues; logged for the developer
             logger.warning("Recovery of interrupted documents failed (%s)", type(exc).__name__)
 
+    async def vectors() -> None:
+        await _warm_up("Embedding model", lambda: get_embedder(embedding_model))
+        await _warm_up(
+            "Qdrant collection",
+            lambda: app.state.vector_store.ensure_collection(
+                get_embedder(embedding_model).dimension
+            ),
+        )
+
     await asyncio.gather(
         database(),
-        _warm_up("Qdrant connection", lambda: app.state.qdrant.collection_exists(collection)),
+        vectors(),
         # ~5 s the first time; loaded now so the first upload doesn't wait for it.
         _warm_up("Tokenizer", lambda: get_tokens(embedding_model)),
     )
@@ -76,15 +86,12 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
         app.state.session_factory = build_session_factory(app.state.engine)
         app.state.read_session_factory = build_read_session_factory(app.state.engine)
         app.state.qdrant = build_qdrant_client(settings)
+        app.state.vector_store = VectorStore(app.state.qdrant, settings.qdrant_collection)
         # Warm-up runs in the background, so the server accepts requests immediately (and
         # `--reload` restarts stay fast). A request that arrives while the warm-up connection is
         # still busy opens a second connection of its own (~1.35 s): measured, not a bug.
         warm_task = (
-            asyncio.create_task(
-                _warm_up_services(
-                    app, settings.qdrant_collection, settings.embedding_model, started_at
-                )
-            )
+            asyncio.create_task(_warm_up_services(app, settings.embedding_model, started_at))
             if warm_up
             else None
         )

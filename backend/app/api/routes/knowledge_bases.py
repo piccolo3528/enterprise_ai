@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, status
 
-from app.api.deps import CurrentUserId, DbSession, KbId, ReadDbSession, StorageDep
+from app.api.deps import (
+    CurrentUserId,
+    DbSession,
+    KbId,
+    ReadDbSession,
+    StorageDep,
+    VectorStoreDep,
+)
 from app.schemas.knowledge_base import (
     KnowledgeBaseCreate,
     KnowledgeBaseList,
@@ -56,10 +63,15 @@ def update_knowledge_base(
 
 @router.delete("/{kb_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_knowledge_base(
-    user_id: CurrentUserId, kb_id: KbId, db: DbSession, storage: StorageDep
+    user_id: CurrentUserId,
+    kb_id: KbId,
+    db: DbSession,
+    storage: StorageDep,
+    vectors: VectorStoreDep,
 ) -> None:
-    """Deletes the knowledge base and everything in it, uploaded files included. Can't be undone."""
-    service.delete_knowledge_base(db, user_id, kb_id)
+    """Deletes the knowledge base and everything in it: vectors, rows and uploaded files. Can't
+    be undone. 503 if the vector database is unreachable (then nothing is deleted yet)."""
+    service.delete_knowledge_base(db, vectors, user_id, kb_id)
     # After the commit: if removing the folder fails, the rows are gone and the files are
     # harmless leftovers (logged), never rows pointing at missing files.
     storage.delete_knowledge_base(kb_id)

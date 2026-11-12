@@ -16,6 +16,8 @@ function DocumentStatus({ status }) {
       return <StatusBadge tone="ok">Ready</StatusBadge>;
     case "failed":
       return <StatusBadge tone="error">Failed</StatusBadge>;
+    case "deleting":
+      return <StatusBadge tone="warning">Deleting</StatusBadge>;
     case "processing":
       return (
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
@@ -28,7 +30,7 @@ function DocumentStatus({ status }) {
   }
 }
 
-function DeleteDocumentModal({ document, onClose, onDeleted }) {
+function DeleteDocumentModal({ document, onClose, onDeleted, onFailed }) {
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -42,6 +44,7 @@ function DeleteDocumentModal({ document, onClose, onDeleted }) {
       if (err.code === "not_found") return onDeleted(document); // already gone
       setError(err);
       setDeleting(false);
+      onFailed(); // the server may have marked it "deleting": show that in the list
     }
   }
 
@@ -135,6 +138,11 @@ export default function DocumentTable({ kbId, documents, onChanged, onDeleted })
                       {d.status === "failed" && d.error_message && (
                         <p className="mt-1 text-xs text-red-600">{d.error_message}</p>
                       )}
+                      {d.status === "deleting" && (
+                        <p className="mt-1 text-xs text-amber-700">
+                          Deleting didn't finish. Delete it again to complete it.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </td>
@@ -183,6 +191,7 @@ export default function DocumentTable({ kbId, documents, onChanged, onDeleted })
         <DeleteDocumentModal
           document={deleting}
           onClose={() => setDeleting(null)}
+          onFailed={onChanged}
           onDeleted={(gone) => {
             setDeleting(null);
             onDeleted(gone);

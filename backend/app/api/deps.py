@@ -21,6 +21,7 @@ from app.core.security import SESSION_COOKIE, InvalidTokenError, decode_access_t
 from app.models import User
 from app.services.ingestion.pipeline import SessionFactory
 from app.services.storage import Storage
+from app.services.vector_store import VectorStore
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -123,5 +124,10 @@ def get_session_factory(request: Request) -> SessionFactory:
     return request.app.state.session_factory
 
 
+def get_vector_store(request: Request) -> VectorStore:
+    return request.app.state.vector_store
+
+
 StorageDep = Annotated[Storage, Depends(get_storage)]
 SessionFactoryDep = Annotated[SessionFactory, Depends(get_session_factory)]
+VectorStoreDep = Annotated[VectorStore, Depends(get_vector_store)]

@@ -28,6 +28,15 @@ def make_settings(**overrides) -> Settings:
     return load_settings(_env_file=None, **values)
 
 
+# Live tests use this Qdrant collection, never the app's own (tests/integration/conftest.py).
+TEST_COLLECTION = "chunks_test"
+
+
+def live_settings(**overrides) -> Settings:
+    """backend/.env settings (real services) aimed at the test collection."""
+    return load_settings(qdrant_collection=TEST_COLLECTION, **overrides)
+
+
 def alembic_config(url: str) -> Config:
     """Alembic config aimed at an explicit database URL (the Neon test branch in tests)."""
     config = Config(str(BACKEND_DIR / "alembic.ini"))

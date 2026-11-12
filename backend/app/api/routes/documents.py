@@ -27,11 +27,12 @@ from app.api.deps import (
     SessionFactoryDep,
     SettingsDep,
     StorageDep,
+    VectorStoreDep,
 )
 from app.core.errors import InvalidFileError, LengthRequiredError, PayloadTooLargeError
 from app.schemas.document import ChunkPage, DocumentList, DocumentOut
 from app.services import documents as service
-from app.services.ingestion.pipeline import ChunkingConfig, process_document
+from app.services.ingestion.pipeline import IngestionConfig, process_document
 
 router = APIRouter(tags=["documents"])
 
@@ -51,6 +52,7 @@ async def upload_document(
     db: DbSession,
     settings: SettingsDep,
     storage: StorageDep,
+    vectors: VectorStoreDep,
     session_factory: SessionFactoryDep,
     background: BackgroundTasks,
 ):
@@ -86,8 +88,8 @@ async def upload_document(
         await form.close()  # deletes the multipart parser's temporary copy
 
     # Runs after the response is sent, in a worker thread (process_document is a plain def).
-    config = ChunkingConfig.from_settings(settings)
-    background.add_task(process_document, session_factory, storage, config, document.id)
+    config = IngestionConfig.from_settings(settings)
+    background.add_task(process_document, session_factory, storage, vectors, config, document.id)
     return document
 
 
@@ -99,9 +101,15 @@ def list_documents(user_id: CurrentUserId, kb_id: KbId, db: ReadDbSession):
 
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(
-    user_id: CurrentUserId, document_id: DocumentId, db: DbSession, storage: StorageDep
+    user_id: CurrentUserId,
+    document_id: DocumentId,
+    db: DbSession,
+    storage: StorageDep,
+    vectors: VectorStoreDep,
 ) -> None:
-    service.delete_document(db, storage, user_id, document_id)
+    """Removes the document's vectors, its rows and its file. 503 if the vector database is
+    unreachable: the document is then left `deleting`, and deleting it again finishes the job."""
+    service.delete_document(db, storage, vectors, user_id, document_id)
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
@@ -133,12 +141,13 @@ def reprocess_document(
     db: DbSession,
     settings: SettingsDep,
     storage: StorageDep,
+    vectors: VectorStoreDep,
     session_factory: SessionFactoryDep,
     background: BackgroundTasks,
 ):
     """Process a failed or ready document again (e.g. after a restart, or after changing the
     chunking settings). 409 while it is already queued or processing."""
     document = service.reprocess_document(db, user_id, document_id)
-    config = ChunkingConfig.from_settings(settings)
-    background.add_task(process_document, session_factory, storage, config, document.id)
+    config = IngestionConfig.from_settings(settings)
+    background.add_task(process_document, session_factory, storage, vectors, config, document.id)
     return document

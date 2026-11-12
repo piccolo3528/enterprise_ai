@@ -1,6 +1,7 @@
-"""Documents end to end: upload, processing (extraction + chunking), listing, chunks, deletion
-and reprocessing. Real PostgreSQL (Neon test branch, rolled back), real parsers, real tokenizer,
-files in a temporary folder.
+"""Documents end to end: upload, processing (extraction, chunking, embedding, indexing), listing,
+chunks, deletion and reprocessing. Real PostgreSQL (Neon test branch, rolled back), real parsers,
+real tokenizer and embedding model, real Qdrant (the "chunks_test" collection), files in a
+temporary folder.
 
 Starlette's TestClient runs background tasks before `client.post(...)` returns, so a test sees
 the finished status straight after the upload.
@@ -14,22 +15,26 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from qdrant_client import QdrantClient, models
+from sqlalchemy import select, update
 
-from app.api.deps import get_db, get_read_db, get_session_factory
-from app.core.config import load_settings
+from app.api.deps import get_db, get_read_db, get_session_factory, get_vector_store
 from app.factory import create_app
 from app.models import Chunk, Document
+from app.services.embeddings import cosine_similarity, get_embedder
+from app.services.ingestion import pipeline
 from app.services.ingestion.extractors import NO_TEXT
 from app.services.ingestion.pipeline import (
+    INDEX_UNAVAILABLE,
     INTERRUPTED,
-    ChunkingConfig,
+    IngestionConfig,
     process_document,
     recover_interrupted,
 )
 from app.services.storage import Storage
+from app.services.vector_store import VectorStore
 from tests import sample_files
-from tests.helpers import act_as, save
+from tests.helpers import TEST_COLLECTION, act_as, live_settings, save
 
 pytestmark = pytest.mark.live
 
@@ -42,9 +47,10 @@ def uploads(tmp_path):
 
 
 @pytest.fixture
-def client(db, uploads):
-    settings = load_settings(upload_dir=uploads, max_upload_mb=MAX_MB)
+def client(db, uploads, vector_store):
+    settings = live_settings(upload_dir=uploads, max_upload_mb=MAX_MB)
     app = create_app(settings, warm_up=False)
+    app.dependency_overrides[get_vector_store] = lambda: vector_store
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_read_db] = lambda: db
 
@@ -55,6 +61,7 @@ def client(db, uploads):
     app.dependency_overrides[get_session_factory] = lambda: shared_session
     with TestClient(app, base_url="https://testserver") as c:
         c.secret = settings.jwt_secret.get_secret_value()
+        c.vectors = vector_store
         yield c
 
 
@@ -70,6 +77,18 @@ def upload(client, kb_id, filename, data: bytes):
 
 def documents(client, kb_id):
     return client.get(f"/api/knowledge-bases/{kb_id}/documents").json()["items"]
+
+
+def points_of(vectors: VectorStore, document_id) -> dict[str, dict]:
+    """point id -> payload, for one document, straight from Qdrant."""
+    match = models.MatchValue(value=str(document_id))
+    points, _ = vectors.client.scroll(
+        TEST_COLLECTION,
+        scroll_filter=models.Filter(must=[models.FieldCondition(key="document_id", match=match)]),
+        limit=1000,
+        with_payload=True,
+    )
+    return {str(p.id): p.payload for p in points}
 
 
 def stored_files(uploads):
@@ -216,23 +235,28 @@ def test_the_same_file_twice_in_one_knowledge_base_is_a_conflict(client, alice, 
 # --- delete --------------------------------------------------------------------------------------
 
 
-def test_deleting_a_document_removes_its_row_and_file(client, alice, uploads):
+def test_deleting_a_document_removes_its_points_row_and_file(client, alice, uploads):
     act_as(client, alice)
     kb_id = new_kb(client)
     upload(client, kb_id, "a.txt", b"Some text.")
     (document,) = documents(client, kb_id)
+    assert len(points_of(client.vectors, document["id"])) == 1
     assert client.delete(f"/api/documents/{document['id']}").status_code == 204
+    assert points_of(client.vectors, document["id"]) == {}
     assert documents(client, kb_id) == []
     assert stored_files(uploads) == []
     assert client.delete(f"/api/documents/{document['id']}").status_code == 404
 
 
-def test_deleting_a_knowledge_base_removes_its_upload_folder(client, alice, uploads):
+def test_deleting_a_knowledge_base_removes_its_points_and_upload_folder(client, alice, uploads):
     act_as(client, alice)
     kb_id = new_kb(client)
     upload(client, kb_id, "a.txt", b"Some text.")
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
     assert (uploads / kb_id).is_dir()
+    assert client.vectors.count(kb_id=uuid.UUID(kb_id)) > 1
     assert client.delete(f"/api/knowledge-bases/{kb_id}").status_code == 204
+    assert client.vectors.count(kb_id=uuid.UUID(kb_id)) == 0
     assert not (uploads / kb_id).exists()
 
 
@@ -326,14 +350,15 @@ def test_a_restart_marks_interrupted_jobs_failed_but_not_new_uploads(client, db,
     assert statuses[just_uploaded.id][0] == "uploaded"  # arrived after startup: left alone
 
 
-def test_a_job_for_a_deleted_document_stops_quietly(db, uploads, caplog):
+def test_a_job_for_a_deleted_document_stops_quietly(db, uploads, vector_store, caplog):
     @contextmanager
     def shared_session():
         yield db
 
     caplog.set_level("INFO")
-    config = ChunkingConfig(embedding_model="BAAI/bge-small-en-v1.5")
-    process_document(shared_session, Storage(uploads), config, uuid.uuid4())  # no such document
+    config = IngestionConfig(embedding_model="BAAI/bge-small-en-v1.5")
+    # no such document
+    process_document(shared_session, Storage(uploads), vector_store, config, uuid.uuid4())
     assert "no longer waiting" in caplog.text
     assert "crashed" not in caplog.text
 
@@ -406,6 +431,8 @@ def test_reprocessing_replaces_chunks_instead_of_adding_to_them(client, db, alic
     after = chunk_rows(db, document["id"])
     assert len(after) == len(before)  # same text, same chunks...
     assert before.isdisjoint({r.id for r in after})  # ...but a fresh set, not duplicates
+    # The old points went with the old chunks: exactly one point per current chunk.
+    assert set(points_of(client.vectors, document["id"])) == {str(r.id) for r in after}
 
 
 def test_a_reprocess_that_now_fails_removes_the_old_chunks(client, db, alice, uploads):
@@ -419,7 +446,8 @@ def test_a_reprocess_that_now_fails_removes_the_old_chunks(client, db, alice, up
     client.post(f"/api/documents/{document['id']}/reprocess")
     (again,) = documents(client, kb_id)
     assert (again["status"], again["chunk_count"]) == ("failed", 0)
-    assert chunk_rows(db, document["id"]) == []  # never "failed" with stale chunks
+    assert chunk_rows(db, document["id"]) == []  # never "failed" with stale chunks...
+    assert points_of(client.vectors, document["id"]) == {}  # ...or stale vectors
 
 
 def test_deleting_a_document_deletes_its_chunks(client, db, alice):
@@ -430,3 +458,137 @@ def test_deleting_a_document_deletes_its_chunks(client, db, alice):
     assert chunk_rows(db, document["id"])
     client.delete(f"/api/documents/{document['id']}")
     assert chunk_rows(db, document["id"]) == []
+
+
+# --- vectors in Qdrant (M9) ---------------------------------------------------------------------
+
+
+def unreachable_store() -> VectorStore:
+    """A Qdrant address where nothing listens: every call fails with "connection refused"
+    (after ~2 s each on Windows, which retries refused connections)."""
+    client = QdrantClient(url="http://127.0.0.1:6999", timeout=2, check_compatibility=False)
+    return VectorStore(client, TEST_COLLECTION)
+
+
+def test_a_ready_document_has_exactly_one_point_per_chunk(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    (document,) = documents(client, kb_id)
+    rows = chunk_rows(db, document["id"])
+    points = points_of(client.vectors, document["id"])
+    assert document["status"] == "ready"
+    assert set(points) == {str(r.id) for r in rows}  # point id = chunk id
+    assert points[str(rows[0].id)] == {
+        "kb_id": kb_id,
+        "document_id": document["id"],
+        "owner_id": str(alice.id),
+        "chunk_index": 0,
+        "page_start": None,
+        "page_end": None,
+        # from the front matter, for filtering by version/status later (S2, S4)
+        "doc_code": "NX-HR-002",
+        "doc_version": "3.0",
+        "doc_status": "current",
+    }  # no text: it lives only in PostgreSQL
+
+
+def test_search_stays_inside_one_owners_knowledge_base(client, db, alice, bob):
+    data = sample_files.MARKDOWN.encode()
+    act_as(client, alice)
+    alice_kb = new_kb(client)
+    upload(client, alice_kb, "policy.md", data)
+    act_as(client, bob)
+    bob_kb = new_kb(client)
+    upload(client, bob_kb, "policy.md", data)  # the same text, in Bob's own knowledge base
+
+    query = get_embedder(client.app.state.settings.embedding_model).embed_query(
+        "How many days of annual leave do employees get?"
+    )
+
+    def search(owner, kb_id):
+        return client.vectors.search(query, owner_id=owner.id, kb_id=uuid.UUID(kb_id), limit=10)
+
+    alice_hits = search(alice, alice_kb)
+    assert alice_hits and {h.payload["kb_id"] for h in alice_hits} == {alice_kb}
+    assert {h.payload["owner_id"] for h in alice_hits} == {str(alice.id)}
+    assert "24 days" in db.get(Chunk, alice_hits[0].chunk_id).text  # the right passage first
+    # Bob's identical chunks never mix in, and nobody gets in through the other's id.
+    assert search(bob, alice_kb) == []
+    assert search(alice, bob_kb) == []
+
+
+def test_qdrant_scores_are_the_cosine_similarity_we_compute_by_hand(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    embedder = get_embedder(client.app.state.settings.embedding_model)
+    query = embedder.embed_query("annual leave entitlement")
+    (hit, *_) = client.vectors.search(query, owner_id=alice.id, kb_id=uuid.UUID(kb_id), limit=3)
+    (vector,) = embedder.embed_documents([db.get(Chunk, hit.chunk_id).text])
+    assert hit.score == pytest.approx(cosine_similarity(query, vector), abs=1e-4)
+
+
+def test_if_qdrant_is_down_the_document_fails_with_nothing_half_stored(client, db, alice):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    client.app.dependency_overrides[get_vector_store] = unreachable_store
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    (document,) = documents(client, kb_id)
+    assert (document["status"], document["error_message"]) == ("failed", INDEX_UNAVAILABLE)
+    assert (document["chunk_count"], chunk_rows(db, document["id"])) == (0, [])
+
+    client.app.dependency_overrides[get_vector_store] = lambda: client.vectors  # back up
+    assert client.post(f"/api/documents/{document['id']}/reprocess").status_code == 202
+    (retried,) = documents(client, kb_id)
+    assert retried["status"] == "ready"
+    assert len(points_of(client.vectors, document["id"])) == retried["chunk_count"] > 0
+
+
+def test_if_qdrant_is_down_a_delete_answers_503_and_can_be_repeated(client, alice, uploads):
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    upload(client, kb_id, "a.txt", b"Some text about leave.")
+    (document,) = documents(client, kb_id)
+    url = f"/api/documents/{document['id']}"
+
+    client.app.dependency_overrides[get_vector_store] = unreachable_store
+    refused = client.delete(url)
+    assert refused.status_code == 503
+    assert refused.json()["error"]["code"] == "service_unavailable"
+    (stuck,) = documents(client, kb_id)
+    assert stuck["status"] == "deleting"  # hidden from search and can't be reprocessed...
+    assert client.post(f"{url}/reprocess").status_code == 409
+    assert len(points_of(client.vectors, document["id"])) == 1  # ...nothing removed yet
+
+    client.app.dependency_overrides[get_vector_store] = lambda: client.vectors
+    assert client.delete(url).status_code == 204  # deleting again finishes the job
+    assert points_of(client.vectors, document["id"]) == {}
+    assert documents(client, kb_id) == [] and stored_files(uploads) == []
+
+
+def test_a_document_deleted_while_being_indexed_leaves_no_points(client, db, alice, monkeypatch):
+    """The race the `deleting` mark exists for: a delete request marks the document while its
+    job is still embedding; the job then indexes, can't mark it ready, and removes its points."""
+    act_as(client, alice)
+    kb_id = new_kb(client)
+    real = get_embedder(client.app.state.settings.embedding_model)
+
+    class DeletedMeanwhile:
+        dimension = real.dimension
+
+        def embed_documents(self, texts):
+            db.execute(
+                update(Document)
+                .where(Document.kb_id == uuid.UUID(kb_id))
+                .values(status="deleting")
+            )
+            db.commit()
+            return real.embed_documents(texts)
+
+    monkeypatch.setattr(pipeline, "get_embedder", lambda name: DeletedMeanwhile())
+    upload(client, kb_id, "policy.md", sample_files.MARKDOWN.encode())
+    (document,) = documents(client, kb_id)
+    assert document["status"] == "deleting"  # the job did not overwrite it with "ready"
+    assert chunk_rows(db, document["id"]) == []
+    assert points_of(client.vectors, document["id"]) == {}

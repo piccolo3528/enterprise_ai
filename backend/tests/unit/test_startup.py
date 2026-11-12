@@ -26,14 +26,24 @@ def test_warm_up_runs_and_a_failure_does_not_block_startup(settings, monkeypatch
     )
     # The tokenizer warm-up reads the Hugging Face cache; unit tests stay off disk and network.
     monkeypatch.setattr(factory, "get_tokens", lambda model: calls.append("tokenizer"))
+
+    class FakeEmbedder:
+        dimension = 384
+
+    def get_embedder(model):
+        calls.append("embedder")
+        return FakeEmbedder()
+
+    monkeypatch.setattr(factory, "get_embedder", get_embedder)
     caplog.set_level("INFO")
 
     # Qdrant points at 127.0.0.1:6999 where nothing listens, so its warm-up fails.
     with TestClient(factory.create_app(settings, warm_up=True)) as client:
-        assert wait_for(lambda: "Qdrant connection warm-up failed" in caplog.text)
+        assert wait_for(lambda: "Qdrant collection warm-up failed" in caplog.text)
         assert wait_for(lambda: "Database pool warmed up" in caplog.text)
-        # Recovery runs after the database warm-up; the tokenizer loads alongside.
-        assert wait_for(lambda: sorted(calls) == ["db", "recover", "tokenizer"])
+        assert wait_for(lambda: "Embedding model warmed up" in caplog.text)
+        # Recovery runs after the database warm-up; the model and tokenizer load alongside.
+        assert wait_for(lambda: {"db", "recover", "tokenizer", "embedder"} <= set(calls))
         assert calls.index("db") < calls.index("recover")
         # The app still serves requests.
         assert client.get("/api/does-not-exist").status_code == 404

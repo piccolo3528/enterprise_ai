@@ -1,7 +1,9 @@
-"""Database fixtures for integration tests. They run ONLY on the Neon "test" branch.
+"""Fixtures for integration tests. They run ONLY on the Neon "test" branch and the Qdrant
+"chunks_test" collection.
 
 Each test runs inside a transaction that is rolled back afterwards, so tests never see each
-other's rows and the branch stays empty.
+other's rows and the branch stays empty. Qdrant has no rollback: the test collection is deleted
+before and after the session instead.
 """
 
 from __future__ import annotations
@@ -14,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import load_settings
 from app.db.session import build_engine, direct_url
-from tests.helpers import alembic_config, make_user
+from app.services.vector_store import VectorStore, build_qdrant_client
+from tests.helpers import TEST_COLLECTION, alembic_config, make_user
 
 
 @pytest.fixture(scope="session")
@@ -37,6 +40,20 @@ def test_engine(test_database_url):
     engine = build_engine(test_database_url)
     yield engine
     engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def vector_store():
+    """The real Qdrant cluster, but only the throwaway test collection."""
+    settings = load_settings()
+    if settings.qdrant_collection == TEST_COLLECTION:
+        pytest.fail("QDRANT_COLLECTION is the test collection; refusing to delete it")
+    client = build_qdrant_client(settings)
+    store = VectorStore(client, TEST_COLLECTION)
+    client.delete_collection(TEST_COLLECTION)  # start clean (no error if it doesn't exist)
+    yield store
+    client.delete_collection(TEST_COLLECTION)
+    client.close()
 
 
 @pytest.fixture
