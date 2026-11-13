@@ -69,6 +69,10 @@ class ChunkDraft:
     page_end: int | None
     section: str | None
     strategy: str
+    # Where the body (text without the context header) sits in the assembled document text.
+    # Not stored; the evaluation uses it to tell which sections a chunk covers (M11).
+    start: int = 0
+    end: int = 0
 
 
 # --- 1. one text with a map back to pages and sections ----------------------------------------
@@ -302,6 +306,8 @@ def chunk_document(
                 page_end=assembled.segment_at(end - 1).page,
                 section=section,
                 strategy=strategy,
+                start=start,
+                end=end,
             )
         )
     return drafts

@@ -39,3 +39,6 @@ rag-documents/*
 
 # Screenshots pasted into the editor land here; they are not project files
 /backend/*.png
+
+# Raw per-question evaluation output (~0.7 MB per run; regenerate with evaluation/run_eval.py)
+backend/evaluation/reports/*.json

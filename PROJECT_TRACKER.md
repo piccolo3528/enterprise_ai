@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-13** · Current milestone: **M10 — Retrieval & Search UI (COMPLETED)** · Next: **M11 — Evaluation Framework v1 (Retrieval)**
+> Last updated: **2026-11-13** · Current milestone: **M11 — Evaluation Framework v1 (COMPLETED)** · Next: **M12 — Core RAG with Gemini + Chat UI**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -167,14 +167,14 @@ explain the concept back in your own words (or answer the related interview ques
 | 16 | Fixed-size chunking | Split every N units; simple but breaks sentences | COMPLETED (M8: token windows via tokenizer offsets) | ☐ | `ingestion/chunking.py` |
 | 17 | Overlapping chunks | Windows share O units so boundary facts survive whole | COMPLETED (M8: window step N−O; recursive carries whole trailing sentences) | ☐ | `ingestion/chunking.py` |
 | 18 | Recursive chunking | Split on paragraph → line → sentence → word, following the text's structure | COMPLETED (M8) | ☐ | `ingestion/chunking.py` |
-| 19 | Chunk size/overlap trade-offs | Small = precise but loses context; large = context but diluted vectors | IN PROGRESS (M8: strategies measured on the corpus by size; retrieval quality compared in M11) | ☐ | `evaluation/compare_chunking.py` |
+| 19 | Chunk size/overlap trade-offs | Small = precise but loses context; large = context but diluted vectors | COMPLETED (M11: 5 configs × 3 modes on 50 questions; bigger chunks "hit" more but send 45 % more tokens; heading-aware 400/60 + hybrid: best MRR 0.814 at 1,341 tokens in the top 5, kept) | ☐ | `evaluation/compare_chunking.py` |
 | 20 | Metadata preservation | Each chunk keeps doc/page/section, which is what makes citations possible | COMPLETED (M8: character spans mapped back to pages and heading paths) | ☐ | `ingestion/chunking.py` |
 | 21 | Tokens & tokenization | Models see subword tokens, not characters; limits are counted in tokens | COMPLETED (M8: bge WordPiece tokenizer, offsets back to the original text; "NX-HR-002" = 7 tokens) | ☐ | `ingestion/tokens.py` |
 | 22 | Embeddings | Text → fixed-length vector where similar meanings sit close together | COMPLETED (M9: bge-small on CPU, loaded once, batches of 16, ~0.37 ms/token) | ☐ | `services/embeddings.py` |
 | 23 | Vector dimensions | Number of coordinates (384 for bge-small); affects memory and speed | COMPLETED (M9: collection created from the model's dimension; a mismatching collection is refused with "rebuild with reindex.py") | ☐ | `services/vector_store.py` |
 | 24 | Cosine similarity | cos θ = a·b / (‖a‖‖b‖); equals the dot product for normalized vectors | COMPLETED (M9: written by hand; equals the dot product for our vectors and Qdrant's score to 1e-4) | ☐ | `services/embeddings.py`, `tests/unit/test_embeddings.py` |
-| 25 | Asymmetric retrieval (query prefix) | BGE queries get an instruction prefix; documents don't | IN PROGRESS (M9: prefix on queries only, unit-tested; its benefit is measured in M11: no top-1 change on 3 live questions) | ☐ | `services/embeddings.py` |
-| 26 | Vector database & ANN (HNSW) | Approximate nearest-neighbour index trades exactness for speed | IN PROGRESS (M9: Qdrant collection with default HNSW; filtered search ~152 ms from India to Sydney. Tuning/recall vs exact search: M11) | ☐ | `services/vector_store.py` |
+| 25 | Asymmetric retrieval (query prefix) | BGE queries get an instruction prefix; documents don't | COMPLETED (M11: with vs without on 50 questions: no difference beyond one question (semantic MRR 0.715 vs 0.721, hybrid 0.814 vs 0.817) and no latency cost; kept as the model card recommends) | ☐ | `services/embeddings.py`, `evaluation/run_eval.py` |
+| 26 | Vector database & ANN (HNSW) | Approximate nearest-neighbour index trades exactness for speed | COMPLETED (M9: default HNSW, ~152 ms filtered search; M11: at 333 vectors Qdrant builds no graph (`indexed_vectors_count` 0), so search is exact and ANN recall loss is zero here; it matters past Qdrant's indexing threshold, tens of thousands of chunks) | ☐ | `services/vector_store.py`, `evaluation/harness.py` |
 | 27 | Metadata filtering | Restricting search to a KB/document via payload filters | COMPLETED (M9: indexed `kb_id` (tenant), `owner_id`, `document_id`, `doc_status`; Qdrant Cloud's strict mode refuses filters on unindexed fields) | ☐ | `services/vector_store.py` |
 | 28 | Derived data & reindexing | Vectors are derived from PostgreSQL text, so Qdrant can be rebuilt | COMPLETED (M9: `reindex.py` rebuilt the user's 74 points in 70 s; `--check` compares per document) | ☐ | `scripts/reindex.py` |
 | 29 | Top-K & similarity thresholds | How many results to fetch; minimum score to count as relevant | COMPLETED (M10: `top_k` 1–50 shown, ≥ `RETRIEVAL_TOP_K` (20) candidates per retriever; `min_score` = minimum cosine, semantic side only: keyword and RRF scores aren't similarities. The "not enough information" gate is M12) | ☐ | `services/retrieval.py` |
@@ -187,7 +187,7 @@ explain the concept back in your own words (or answer the related interview ques
 | 36 | Temperature & sampling | Randomness control; kept low for factual answers | NOT STARTED | ☐ | `llm/gemini_client.py` |
 | 37 | Token limits & context windows | Input/output caps; why we budget far below 1M | NOT STARTED | ☐ | `context_builder.py` |
 | 38 | Grounding & citations | Every claim tied to a numbered source; invalid citations removed | NOT STARTED | ☐ | `rag.py`, `context_builder.py` |
-| 39 | Hallucination & "I don't know" | Threshold gate + prompt rule, so the model refuses rather than invents | NOT STARTED | ☐ | `rag.py` |
+| 39 | Hallucination & "I don't know" | Threshold gate + prompt rule, so the model refuses rather than invents | IN PROGRESS (M11: the top-1 cosine can't be the gate: answerable 0.599–0.808, unanswerable 0.575–0.753; best threshold 91 % vs 88 % for "always answer". Gate on the cross-encoder + prompt rule in M12/M14) | ☐ | `rag.py`, `evaluation/analysis.py` |
 | 40 | Prompt injection | Documents may contain instructions; treat them as data, layer the defences | NOT STARTED | ☐ | `llm/prompts.py`, `context_builder.py` |
 | 41 | Structured outputs | Asking the LLM for JSON matching a schema (rewrite/multi-query) | NOT STARTED | ☐ | `query_processing.py` |
 | 42 | Streaming (SSE) | Sending tokens as they're generated; better perceived latency | NOT STARTED | ☐ | `routes/conversations.py`, `frontend/src/api/streamChat.js` |
@@ -197,10 +197,10 @@ explain the concept back in your own words (or answer the related interview ques
 | 46 | Multi-query retrieval | Several phrasings → union of results → better recall | NOT STARTED | ☐ | `query_processing.py`, `retrieval.py` |
 | 47 | Context compression | Keeping only the sentences relevant to the query | NOT STARTED | ☐ | `context_builder.py` |
 | 48 | "Lost in the middle" | LLMs under-use mid-context facts; order and size matter | NOT STARTED | ☐ | `context_builder.py` |
-| 49 | Recall@K / Precision@K / MRR / Hit rate | Retrieval metrics against labelled relevant chunks | NOT STARTED | ☐ | `evaluation/metrics.py` |
+| 49 | Recall@K / Precision@K / MRR / Hit rate | Retrieval metrics against labelled relevant chunks | COMPLETED (M11: written by hand and unit-tested on hand-computed values; relevance = a chunk's text overlaps the body of an expected section in the expected version) | ☐ | `evaluation/metrics.py` |
 | 50 | Faithfulness / groundedness | Is every answer claim supported by the context? (LLM-as-judge) | NOT STARTED | ☐ | `evaluation/metrics.py` |
 | 51 | Answer relevance | Does the answer address the question? | NOT STARTED | ☐ | `evaluation/metrics.py` |
-| 52 | Latency profiling | Per-stage timings to find bottlenecks (incl. Neon cold start) | NOT STARTED | ☐ | `rag.py`, `evaluation/run_eval.py` |
+| 52 | Latency profiling | Per-stage timings to find bottlenecks (incl. Neon cold start) | IN PROGRESS (M10/M11: retrieval stages p50/p95 per mode after a warm-up: semantic 237 ms, keyword 174, hybrid 238; Qdrant ~155 ms is the largest stage. LLM stages in M12) | ☐ | `services/retrieval.py`, `evaluation/run_eval.py` |
 | 53 | Cross-store consistency | Ordering writes/deletes across Neon and Qdrant to fail safely | NOT STARTED | ☐ | `ingestion/pipeline.py`, `routes/documents.py` |
 | 54 | Async I/O & thread offloading | `async` routes stay responsive; blocking clients run in threads (`asyncio.to_thread`); independent calls run concurrently (`gather`) | COMPLETED (M2: health checks in parallel ~1 s not ~1.6 s; M10: the semantic side runs in a worker thread while PostgreSQL does the ownership check + keyword query: hybrid ~250 ms vs ~355 ms sequential) | ☐ | `services/health.py`, `services/retrieval.py` |
 | 55 | Observability: request IDs & error contracts | One ID ties a response, its error body and its log lines together; one stable error shape; internals never leak | COMPLETED (M2) | ☐ | `core/middleware.py`, `core/errors.py`, `core/logging.py` |
@@ -219,6 +219,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 69 | Measure before adding a lock | Shared CPU model: a lock made searches wait 4–13 s behind a document (unfair lock); without one, 129 ms median and no errors | COMPLETED (M9) | ☐ | `services/embeddings.py` |
 | 70 | Coverage-first keyword ranking | Rank by how many distinct query words a passage contains, then by `ts_rank_cd`; a cheap stand-in for IDF, which PostgreSQL's rank lacks | COMPLETED (M10: "carry forward leave" → both carry-forward sections on top instead of "Leave Year and Leave Types") | ☐ | `services/keyword_search.py` |
 | 71 | Graceful degradation | When one dependency fails, return what still works and say so | COMPLETED (M10: Qdrant down → hybrid returns keyword results + a notice; semantic → 503 naming the working alternative) | ☐ | `services/retrieval.py`, `pages/Search.jsx` |
+| 72 | Evaluation noise floor | Know how big a difference must be before believing it | COMPLETED (M11: 50 scored questions → one question = 2 points; two identical runs differed by one keyword question because ties are broken by random chunk ids) | ☐ | `evaluation/reports/` |
+| 73 | Ablation: test one hypothesis by removing one thing | Change exactly one variable and re-measure | COMPLETED (M11: "the context header hurts semantic search": removed it, semantic Hit@5 stayed 86 %: rejected; the header stays) | ☐ | `evaluation/harness.py` (`header`) |
 | 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
 ---
@@ -398,17 +400,18 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M9.
 - **Testing:** 29 unit (RRF vs hand-computed values, the orchestration with fakes, request rules, route guards) + 18 live (every mode, isolation between users/KBs, document filter, threshold, ready-only, odd characters, Qdrant down) + 12 frontend; Chrome on the user's servers (§F.8).
 
-### M11 — Evaluation Framework v1 (Retrieval) · `NOT STARTED`
+### M11 — Evaluation Framework v1 (Retrieval) · `COMPLETED` (2026-11-13)
 - **Objective:** Measure retrieval quality to set the baseline.
 - **Tasks:**
-  - [ ] Our own sample corpus (fictional HR policies) as PDF/DOCX/TXT
-  - [ ] `dataset.json`: ~30–40 labelled questions incl. **unanswerable** ones
-  - [ ] Hit rate@K, Recall@K, Precision@K, MRR; per-stage latency
-  - [ ] `run_eval.py` report + failure listing; `compare_chunking.py`
-  - [ ] Compare semantic vs keyword vs hybrid; with vs without BGE prefix
-- **Expected output:** a baseline report and a chosen chunking config backed by numbers.
+  - [x] Corpus: the user's 22 Nexora policies (S5, approved), not a new PDF/DOCX/TXT set; validated first (`validate_corpus.py`: 0 FAIL, 0 WARN). PDF/DOCX aren't evaluated (L48)
+  - [x] Dataset: the existing `eval_dataset.json`, 57 labelled questions in 9 types, 7 unanswerable; 50 scored (answerable with sections)
+  - [x] `evaluation/metrics.py`: hit@K, recall@K, precision@K, RR/MRR, nearest-rank percentile, best threshold, by hand; relevance by character overlap with section bodies, version-exact (`ChunkDraft` now carries `start`/`end`) (D59)
+  - [x] `evaluation/harness.py`: indexes the corpus inside one never-committed transaction on the Neon test branch + a throwaway `chunks_eval` collection, and asks every question through the real `retrieval.search` (D59)
+  - [x] `run_eval.py`: summary per variant, hybrid per question type, "old version first", the unanswerable-threshold analysis, per-stage latency (after a warm-up), failure listing; `compare_chunking.py`: 5 configs × 3 modes
+  - [x] Compared semantic / keyword / hybrid, with and without the BGE prefix, and (ablation) heading chunks without their context header (D60)
+- **Expected output:** a baseline report and a chosen chunking config backed by numbers. **Achieved:** `evaluation/reports/2026-11-13_heading_400-60.md` (hybrid Hit@1 72 %, Hit@5 96 %, Recall@5 83 %, MRR 0.814, 238 ms p50) and `2026-11-13_chunking_comparison.md`; heading-aware 400/60 + hybrid kept (D60).
 - **Dependencies:** M10.
-- **Testing:** metric unit tests on hand-computed examples.
+- **Testing:** 23 unit tests (metrics vs hand-computed values, section mapping incl. a trailing heading line, chunk offsets for all 4 strategies, the dataset's shape, stale-version/summary/threshold analysis); every number hand-checked on 3 questions against the corpus before use.
 
 ### M12 — Core RAG with Gemini + Chat UI · `NOT STARTED`
 - **Objective:** End-to-end grounded Q&A with citations (non-streaming first).
@@ -501,13 +504,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - Search (M10): semantic, keyword and hybrid search of a knowledge base with a document filter,
   top-K and a similarity threshold; Search page with explained scores; degrades to keyword
   search when Qdrant is down.
-- Next: retrieval evaluation (M11).
+- Retrieval evaluation (M11): a repeatable baseline over 57 labelled questions (no data kept);
+  chunking, search modes and the BGE prefix compared with numbers.
+- Next: answers with Gemini and the chat page (M12).
 
 ### F.2 In progress
-- Nothing. M11 (retrieval evaluation) is next.
+- Nothing. M12 (core RAG with Gemini + chat UI) is next.
 
 ### F.3 Remaining functionality
-- Everything in M11–M17 (M18 optional).
+- Everything in M12–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -563,6 +568,12 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L45 | First searches after a few idle minutes take 500–800 ms server time (warm: ~250 ms) | Pooled Neon connections older than 240 s are replaced (new TLS to Singapore) and Qdrant's keep-alive to Sydney closes; the time shows in `connect_and_scope_check` / `vector_search` | Deliberate settings (D23 recycle + pre-ping); measured in Chrome, not a code path. A keep-alive would burn Neon free hours (D30) |
 | L46 | A document being reprocessed disappears from search until it is ready again | Searches during the reprocess (seconds) miss it | Follows from "ready = searchable" (D51/D56); keeping the old chunks searchable needs versioned chunk sets |
 | L47 | Only cosine has a meaningful threshold; keyword (matched words) and RRF scores encode ranks, not confidence | `min_score` filters only the semantic side; there is no "nothing relevant" signal in keyword/hybrid mode | The answerability gate uses the cross-encoder's score (M12/M14), which is comparable across queries |
+| L48 | The evaluation corpus is Markdown only | PDF (page-based) and DOCX extraction/chunking quality isn't measured | The pipeline is format-agnostic after extraction; a PDF/DOCX copy of a few documents can be added to the evaluation later |
+| L49 | 50 scored questions, labelled by one author | One question = 2 points; differences under ~4 points aren't evidence; labels can carry the author's blind spots | Report the noise floor next to every comparison; add questions as failures are found |
+| L50 | Coverage-first keyword ranking favours long chunks | Keyword top-1 chunks average 314 tokens vs 246 (semantic); part of keyword's lead (Hit@5 98 % vs 86 %) is "more text", and it spends more context | Report tokens next to hit rates; BM25 has length normalisation built in |
+| L51 | Keyword ties are broken by chunk id, which is random per build | Two identical evaluation runs differed by one question (keyword Hit@1 64 % vs 66 %) | Deterministic enough for the app; a stable secondary key (document, chunk index) would make runs repeatable |
+| L52 | Version confusion | Semantic search shows an old version first for 6 of 15 questions about multi-version documents (e.g. Q001: archived v2.0 "18 days" above v3.0 "20 days"); hybrid 2 of 15; Q041 fails in every mode | The `status = current` filter (S4) in M14 |
+| L53 | Amendment questions: the right passages are found but not ranked first | `amendment_combination`: Hit@5 100 % but Recall@5 49 %, MRR 0.386 | Retrieve the amendment with its base document (S4 rule 3) and rerank, M14 |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -623,6 +634,9 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D56 | 2026-11-13 | Retrieval: PostgreSQL confirms every hit (ready document, caller's KB) **before** fusion, so ranks are counted among valid chunks; ≥ `RETRIEVAL_TOP_K` (20) candidates per retriever, `top_k` returned; `min_score` = cosine, semantic side only; RRF k=60 written by hand | "Ready = searchable" holds for search too; orphan points (L40) never surface; fusing before filtering would let invisible chunks take ranks | Trust Qdrant's payload; text in the Qdrant payload; library fusion | Accepted (M10) |
 | D57 | 2026-11-13 | The semantic side (embed + Qdrant) runs in a shared 8-thread pool while the request thread does the ownership check + keyword query on PostgreSQL; semantic failures → 503 in semantic mode, keyword results + notice in hybrid | Measured on the user's data: hybrid ~250–300 ms vs ~355 ms sequential; a search box that still works when Qdrant is down | Sequential; `async` route + `asyncio.gather` (same overlap, but the DB session is sync); fail hybrid entirely | Accepted (M10) |
 | D58 | 2026-11-13 | Search page state (`kb`, `q`, `mode`, `doc`) lives in the URL; KB select on the page plus a "Search" button on each KB; no threshold control in the UI (API only); scores explained in words per mode | Bookmarkable searches and a working Back button; a raw RRF number means nothing to a user; the threshold is tuned with data in M11 | Component state only; a search box per KB page | Accepted (M10) |
+| D59 | 2026-11-13 | Evaluation design: the corpus is indexed inside ONE never-committed transaction on the Neon test branch + a throwaway `chunks_eval` collection, and every question goes through the real `retrieval.search`; relevance = a chunk's body overlaps the body of an expected section (or a subsection) in the expected document **and version**, from character offsets (`ChunkDraft.start/end`), not labels | Measures the code the API runs (FTS, Qdrant, confirmation join, RRF) without leaving data anywhere; offsets work for every strategy and ignore a heading line trailing at the end of a chunk; the version rule counts "archived v2.0" as a miss | An in-memory re-implementation (wouldn't test the real system); matching section labels (merged ranges, strategy-specific); document-level relevance (too lenient) | Accepted (M11) |
+| D60 | 2026-11-13 | Keep heading-aware 400/60 chunking, hybrid as the default mode, the BGE query prefix and the context header | Hybrid on heading 400/60: best MRR (0.814) and Hit@1 (72 %) at 1,341 tokens in the top 5, vs fixed 400: Recall@5 85 % but 1,948 tokens (+45 %); prefix: no difference beyond one question either way; header: removing it changed nothing measurable (ablation) and citations need it | recursive 200/30 (fewest tokens, 856, but hybrid Recall@5 72 %); fixed 400 (most recall per question, most tokens); dropping the prefix | Accepted (M11) |
+| D61 | 2026-11-13 | Reports: Markdown committed (`evaluation/reports/*.md`), raw JSON ignored (~0.7 MB per run, regenerated in ~2 min); a warm-up pass before timing; differences of one question (2 points) treated as noise | Reviewers can read the baseline in the repo; latency without first-call costs; honest comparisons | Commit everything; no warm-up (first variant looked 50 % slower) | Accepted (M11) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -702,6 +716,13 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-11 | M9 | `pytest` (unit) | ✔ 185 passed | +23: cosine (hand-computed, angle only, zero/mismatch errors), prefix on queries only + batch/normalize options (fake model), only English BGE gets a prefix, real model (384 numbers of length 1, cosine = dot, relevant > unrelated by > 0.1, prefix moves the query vector), VectorStore on in-memory Qdrant (create once, wrong dimension refused, 2-batch upsert + counts, same id overwrites, delete keeping fresh ids, KB delete, no-collection no-ops, search needs owner + KB and scores = cosine, recreate), startup warm-up incl. model + collection |
 | 2026-11-11 | M9 | `pytest -m live` (Neon test branch + Qdrant `chunks_test`) | ✔ 73 passed | First run 2 failed: Qdrant Cloud strict mode, 400 "Index required but not found for owner_id" (in-memory mode doesn't enforce it) → `owner_id` indexed. New: one point per chunk with the exact payload; search confined to one owner's KB (identical text in Bob's KB never returned, cross ids → nothing), best hit = the right passage; Qdrant score = hand cosine (1e-4); Qdrant down during ingest → failed, 0 chunks, reprocess → ready with points; Qdrant down during delete → 503, `deleting`, reprocess 409, delete again → 204 and 0 points; **document deleted while being indexed** → stays `deleting`, 0 chunks, 0 points. Extended: delete document/KB removes points, reprocess replaces points, failed reprocess leaves 0 points |
 | 2026-11-12 | M9 | Final full live run | ⚠ then ✔ | First final run: 72 passed, 1 failed (`/api/health` hit its 15 s check timeout) and the run took 21 min instead of ~4: the network was slow again (L34). Re-run on a healthy network (google.com 0.55 s): health test 3/3 in 4.3 s, full suite **73 passed in 4 min 4 s** |
+| 2026-11-13 | M11 | `validate_corpus.py` | ✔ 0 FAIL, 0 WARN | 22 documents, 52,051 tokens, 635 leaf sections (median 49 tokens): one 400-token chunk spans ~8 sections, so hit rates are reported with tokens retrieved |
+| 2026-11-13 | M11 | Baseline `run_eval.py` (heading 400/60, 333 chunks, 50 scored questions) | ✔ | Hit@1/Hit@5/Recall@5/MRR@10: semantic 58/86/72 %/0.715 · keyword 66/98/81 %/0.789 · **hybrid 72/96/83 %/0.814**; prefix off: within one question; old version first: semantic 6 of 15, hybrid 2 of 15; unanswerable: best cosine threshold 0.633 → 91 % vs 88 % "always answer"; latency p50 (after warm-up) semantic 237, keyword 174, hybrid 238 ms; HNSW graph: 0 vectors (exact search); hybrid misses at 5: Q041 (archived v1.0 wins), Q050 ("notice" → exit-policy notice period). Run 98 s |
+| 2026-11-13 | M11 | Hand check before trusting the numbers | ✔ | Q001: semantic 1st = archived v2.0 §4.1 (the "18 days" trap) scored as a miss; hybrid 1st = v3.0 §4.1 ("20 working days" confirmed in the file); Q039, Q041 checked the same way. Keyword top-1 chunks average 314 tokens vs 246 semantic (L50) |
+| 2026-11-13 | M11 | `compare_chunking.py` (5 configs × 3 modes) | ✔ | hybrid Hit@5 / Recall@5 / MRR / tokens in top 5: heading 400/60 96 %/83 %/0.814/1,341 · recursive 400/60 98/82/0.752/1,771 · recursive 200/30 92/72/0.788/856 · fixed 400 98/85/0.782/1,948 · overlap 400/60 96/80/0.788/1,968. Semantic alone is weakest on heading chunks (86 % vs 96 % on recursive 200/30). Run 399 s |
+| 2026-11-13 | M11 | Ablation: heading chunks without the context header | ✔ hypothesis rejected | semantic Hit@5 86 % → 86 %, MRR 0.715 → 0.722, old version first 6 → 6 of 15; hybrid MRR 0.814 → 0.821 (noise); 12 % fewer tokens. The header isn't why semantic search is weaker on heading chunks |
+| 2026-11-13 | M11 | Repeatability | ℹ | Two identical baseline runs: semantic identical; keyword Hit@1 64 % vs 66 % (one question: ties broken by random chunk ids, L51); first run's latency inflated by first calls (embed 92 vs 22 ms) → warm-up added |
+| 2026-11-13 | M11 | `ruff` / `pytest` / `pytest -m live` / `npm test` | ✔ / 237 / 91 / 77 passed | +23 unit (evaluation); no live or frontend changes (live suite re-run because `ChunkDraft` changed) |
 | 2026-11-13 | M10 | Keyword query design, measured read-only on the user's "HR Policies" (74 chunks) | ℹ decided | AND (`websearch_to_tsquery`): 0 rows for "How many days of annual leave can I carry forward to next year?", "Can I work from another country?", "What happens if I get sick during my holiday?"; OR + `ts_rank_cd`: results, but "Leave Year and Leave Types" 1st for "carry forward leave"; coverage-first: both carry-forward sections 1st–3rd, §6.1 from 4th to 2nd on the long question; all ~60 ms (D55) |
 | 2026-11-13 | M10 | `retrieval.search` on the user's KB, 4 questions × 3 modes (read-only) | ✔ | "carry forward leave": all three modes → §10.1 Carried-forward balances, §6 Carry-Forward (v3.0), §6 (v2.0). "Can I work from another country?": semantic 1st = archived v1.0 "Working from Home", hybrid 1st = current v2.0 "Work From Anywhere" (semantic #2 + keyword #4). "Sick during my holiday": still weak in every mode (L41). Timings: semantic ~245 ms (embed 30, Qdrant 150, passages 60, scope check overlapped), keyword ~177 ms, hybrid 248–308 ms (~355 sequential) |
 | 2026-11-13 | M10 | `ruff check` | ✔ clean | New files formatted; two M9 files (`pipeline.py`, `vector_store.py`) still differ from `ruff format` (cosmetic, left as is) |
@@ -751,6 +772,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **M8:** tokenizers 0.23.3 and huggingface-hub 2.4.0 now declared directly (already installed via sentence-transformers). New setting `CHUNK_STRATEGY` (default `auto`).
 **M9:** no new dependencies (sentence-transformers, torch and qdrant-client were installed in M1). Qdrant Cloud collection `chunks` (384-d cosine; indexes `kb_id` tenant, `owner_id`, `document_id`, `doc_status`), 74 points. Live tests use `chunks_test` (deleted after each run). No new settings.
 **M10:** no new dependencies; no new settings (`RETRIEVAL_TOP_K` = candidates per retriever).
+**M11:** no new dependencies or settings. The evaluation uses `TEST_DATABASE_URL` (rolled back) and the Qdrant collection `chunks_eval` (deleted after each run). A run takes ~100 s (`run_eval.py`) or ~400 s (`compare_chunking.py`) on this laptop.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -852,9 +874,17 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   per-stage timings turned "search is slow in the browser" into "the first query of a request
   pays for the connection" in one call; a one-line feature (Show more) still needed the browser
   to show it was wrong; when a test fails, check the test's data first (it was wrong again).
+- **M11:** check the ruler before measuring with it: validate the labels, unit-test the metrics on
+  hand-computed values, and hand-check a few questions before believing a table; relevance must
+  include the version, or the archived "18 days" counts as right; measure the noise floor (two
+  identical runs differed by one question) before calling anything better; a bigger chunk "hits"
+  more, so report tokens next to hit rates; warm up before timing (the first variant looked 50 %
+  slower); a plausible hypothesis (the context header hurts embeddings) was wrong: one ablation
+  run settled it; a documented best practice (the BGE prefix) made no difference on this data;
+  a cosine threshold can't tell "not in the documents" apart (91 % vs 88 % for always answering).
 
 ### F.10 Next recommended action
-1. Start **M11 — Evaluation Framework v1 (Retrieval)** (a labelled question set over the corpus incl. unanswerable questions; Hit rate@K, Recall@K, Precision@K, MRR by hand; per-stage latency; `run_eval.py` report + failure listing; semantic vs keyword vs hybrid, with vs without the BGE prefix; chunking configurations compared).
+1. Start **M12 — Core RAG with Gemini + Chat UI** (Gemini client with config-driven model/temperature/limits and error mapping; token-bucket rate limiter + backoff; prompt templates with grounding, citation format and injection rules; context builder v1; "not found" gate (not a cosine threshold: M11 showed it can't separate unanswerable questions); citation validation; chat page with a citation panel).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 
@@ -889,6 +919,7 @@ wired in behind the LLM provider interface in M12.
 - **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
 - **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
 - **Authentication**: Argon2id with no account-enumeration leaks, JWT in an httpOnly/Secure/SameSite=Strict cookie, route guards, session-expiry handling (M5).
+- **Retrieval evaluation**: hand-written Hit@K / Recall@K / Precision@K / MRR over 57 labelled questions, version-exact relevance from character offsets, the real search code run inside a rolled-back transaction, chunking/mode/prefix comparisons, an ablation that rejected my own hypothesis, a measured noise floor, and an unanswerable-threshold analysis (M11).
 - **Retrieval**: semantic, keyword and hybrid search with RRF written by hand; keyword ranking chosen by measuring on real questions (any word, ranked by words matched); PostgreSQL confirms every vector hit before fusion; top-K, a cosine threshold, per-stage timings, the semantic side overlapped with PostgreSQL, and a keyword fallback when Qdrant is down (M10).
 - **Embeddings & vector storage**: local CPU embeddings loaded once (measured: no lock, batch 16), hand-written cosine, Qdrant with indexed tenant filters that require owner + KB, ordered writes/deletes across Qdrant/PostgreSQL/disk with races and outages tested live, and a rebuild/check script (M9).
 - **Chunking**: four strategies written from scratch with token-exact sizing (the embedding model's tokenizer), page/section metadata from character spans, structure-aware chunks with context headers, batched inserts, chunk inspector and reprocessing (M8).
@@ -906,7 +937,7 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 |---|---|---|
 | 1 | Walk me through your RAG pipeline end to end. | After M12 |
 | 2 | Why RAG instead of fine-tuning? | After M12 |
-| 3 | How did you choose chunk size and overlap? Show data. | After M11 |
+| 3 | How did you choose chunk size and overlap? Show data. | In Notion (M11) |
 | 4 | What is an embedding? What does cosine similarity measure, and why normalize? | In Notion (M9) |
 | 5 | Why hybrid search? When does keyword beat semantic? | In Notion (M10) |
 | 6 | What is Reciprocal Rank Fusion, and why not add scores? | In Notion (M10) |
@@ -914,7 +945,7 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 8 | How do you stop the model hallucinating? | After M12 |
 | 9 | How do you handle prompt injection in retrieved documents? | After M12 |
 | 10 | How do you guarantee one user can't retrieve another user's documents? | In Notion (M9) |
-| 11 | Define Recall@K, Precision@K and MRR. How did you measure retrieval? | After M11 |
+| 11 | Define Recall@K, Precision@K and MRR. How did you measure retrieval? | In Notion (M11) |
 | 12 | How do you measure faithfulness? Limits of LLM-as-judge? | After M15 |
 | 13 | The context window is 1M tokens, so why not send everything? | After M14 |
 | 14 | How do follow-up questions work? | After M13 |
@@ -960,6 +991,9 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 54 | Your keyword search found nothing for full questions. Why, and what did you change? | In Notion (M10) |
 | 55 | A search calls two remote services. How do you keep it fast, and how do you find what's slow? | In Notion (M10) |
 | 56 | What should search do when the vector database is down? | In Notion (M10) |
+| 57 | How do you know your evaluation measures the right thing? | In Notion (M11) |
+| 58 | Tell me about a hypothesis of yours that turned out wrong. | In Notion (M11) |
+| 59 | Can a similarity score tell when the documents don't contain the answer? | In Notion (M11) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 

@@ -7,8 +7,9 @@ this in your documents" instead of a made-up answer.
 > **Project status: M0–M10 done: backend and frontend skeletons, the database schema on Neon
 > (Singapore), accounts, private knowledge bases with a dashboard, document upload with
 > background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector,
-> local embeddings stored in Qdrant (with safe deletes and a rebuild script), and semantic,
-> keyword and hybrid search. Next: retrieval evaluation (M11).**
+> local embeddings stored in Qdrant (with safe deletes and a rebuild script), semantic,
+> keyword and hybrid search, and a retrieval evaluation over 57 labelled questions
+> (hybrid: 96 % of answers in the top 5). Next: answers with Gemini (M12).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -354,7 +355,7 @@ frontend.
   keyword matches with a notice. The first search after a few idle minutes is slower
   (~0.5–0.8 s) while connections are re-opened.
 
-### 13. Run the tests *(verified; M10: 214 unit + 91 live backend, 77 frontend)*
+### 13. Run the tests *(verified; M11: 237 unit + 91 live backend, 77 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)
@@ -370,6 +371,20 @@ npm run build               # production build check
 
 From M4, database integration tests use the Neon **`test`** branch (`TEST_DATABASE_URL`) and a
 separate Qdrant collection, so they never touch your development data.
+
+### 14. Run the retrieval evaluation *(verified, M11)*
+
+```powershell
+# backend/, venv active; needs TEST_DATABASE_URL and Qdrant in backend/.env
+python evaluation/validate_corpus.py       # check the corpus and the 57 labelled questions first
+python evaluation/run_eval.py              # ~100 s: report in evaluation/reports/<date>_heading_400-60.md
+python evaluation/run_eval.py --strategy recursive --size 200 --overlap 30
+python evaluation/compare_chunking.py      # ~7 min: 5 chunking configs x 3 search modes
+```
+
+Nothing is kept: the corpus is indexed inside a database transaction that is rolled back, and in
+a Qdrant collection (`chunks_eval`) that is deleted at the end. With 50 scored questions, one
+question is 2 percentage points, so differences that small are noise.
 
 ### Daily routine (once everything is set up)
 

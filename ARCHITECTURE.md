@@ -1,7 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M10 (2026-11-13).** Parts labelled
-> "implemented in M2" … "M10" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M11 (2026-11-13).** Parts labelled
+> "implemented in M2" … "M11" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
@@ -285,8 +285,10 @@ answer exists.
 - Vectors are L2-normalized, so **cosine similarity = dot product**. We'll implement cosine by hand
   in a unit test to show this.
 - BGE uses an **asymmetric** setup: queries get the instruction prefix
-  `"Represent this sentence for searching relevant passages: "` and documents don't. Forgetting
-  the prefix measurably lowers recall. Our evaluation will demonstrate this.
+  `"Represent this sentence for searching relevant passages: "` and documents don't. The model
+  card says leaving it off lowers recall; **measured in M11 on our 50 questions, it made no
+  difference** beyond one question either way (semantic MRR 0.715 with, 0.721 without). Kept, as
+  recommended, at no measurable cost.
 - Qdrant layout: **one collection `chunks`** with payload `{kb_id, document_id, owner_id, page_start,
   page_end, chunk_index}` and **payload indexes** on `kb_id` and `document_id`. Every search is
   filtered by `kb_id`. This is Qdrant's recommended multitenancy pattern, and it is cheaper than one
@@ -358,6 +360,21 @@ POST /api/knowledge-bases/{kb_id}/search
    semantic_rank, semantic_score, keyword_rank, keyword_score, keyword_matched}],
    "query_terms": null, "notice": null, "timings_ms": {...}}
 ```
+
+**Measured in M11** (`evaluation/`, D59–D61), 50 labelled questions over the 22-document corpus,
+heading-aware 400/60 chunks:
+
+| Mode | Hit@1 | Hit@5 | Recall@5 | MRR@10 | Tokens in top 5 | Old version first | p50 |
+|---|---|---|---|---|---|---|---|
+| semantic | 58 % | 86 % | 72 % | 0.715 | 1,111 | 6 of 15 | 237 ms |
+| keyword | 66 % | 98 % | 81 % | 0.789 | 1,478 | 2 of 15 | 174 ms |
+| **hybrid** | **72 %** | 96 % | **83 %** | **0.814** | 1,354 | 2 of 15 | 238 ms |
+
+Hybrid is the default. Keyword search scores well on this corpus partly because its ranking
+favours longer chunks (L50). Version confusion (an archived version ranked above the current one)
+is the largest remaining error class, which the `status = current` filter (S4) addresses in M14.
+The top-1 cosine can't detect unanswerable questions (best threshold: 91 % correct vs 88 % for
+always answering), so M12's "not found" gate won't be a cosine threshold.
 
 ### 4.4 Reranking
 
@@ -928,10 +945,12 @@ enterprise-ai/
 │   │   ├── datasets/
 │   │   │   └── eval_dataset.json  # 57 labelled questions (kept OUTSIDE corpus/ so it's never uploaded)
 │   │   ├── validate_corpus.py  # checks corpus + dataset against the spec (built in M1)
-│   │   ├── metrics.py          # recall@k, precision@k, MRR, hit rate, faithfulness
-│   │   ├── run_eval.py
-│   │   ├── compare_chunking.py
-│   │   └── reports/            # generated markdown/JSON results
+│   │   ├── metrics.py          # hit@k, recall@k, precision@k, MRR by hand (faithfulness: M15)
+│   │   ├── harness.py          # index the corpus (rolled back), ask via retrieval.search
+│   │   ├── analysis.py         # summaries, per-type, version confusion, thresholds, latency
+│   │   ├── run_eval.py         # one config, all search variants -> report (built in M11)
+│   │   ├── compare_chunking.py # 5 chunking configs x 3 modes (built in M11)
+│   │   └── reports/            # Markdown reports (committed); raw JSON (git-ignored)
 │   └── tests/
 │       ├── conftest.py
 │       ├── fixtures/           # tiny pdf/docx/txt incl. empty + corrupt files
