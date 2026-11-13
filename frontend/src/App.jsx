@@ -9,6 +9,7 @@ import KnowledgeBases from "./pages/KnowledgeBases";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Register from "./pages/Register";
+import Search from "./pages/Search";
 import SystemStatus from "./pages/SystemStatus";
 
 // The router lives in main.jsx (BrowserRouter), so tests can wrap <App /> in a MemoryRouter.
@@ -29,6 +30,7 @@ export default function App() {
             path="knowledge-bases/:kbId/documents/:documentId"
             element={<DocumentChunks />}
           />
+          <Route path="search" element={<Search />} />
           <Route path="status" element={<SystemStatus />} />
           <Route path="*" element={<NotFound />} />
         </Route>

@@ -1,7 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M9 (2026-11-11).** Parts labelled
-> "implemented in M2" … "M9" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M10 (2026-11-13).** Parts labelled
+> "implemented in M2" … "M10" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
@@ -80,7 +80,7 @@ what*, the filesystem keeps the *originals*, and Gemini *writes* the answer.**
 | Knowledge bases *(built in M6)* | List (cards with counts), create, rename/describe, delete with confirmation; a detail page per KB (`/knowledge-bases/:id`) that M7 extends with documents. Dialogs are an accessible `Modal` (focus moves in, Tab stays inside, Escape closes, focus returns), never `window.confirm`. |
 | KB detail / documents | Drag-and-drop upload with progress, a document table with live processing status, delete. |
 | Chat | Streaming answers, inline citation markers, citation side panel, conversation list. |
-| Search | Hybrid search across a KB, showing matching passages without calling the LLM. |
+| Search | Semantic, keyword or hybrid search across a KB (optionally one document), showing matching passages without calling the LLM. *Built in M10.* |
 | Settings | Account (name, password), retrieval defaults. |
 | System status *(built in M3)* | Live service health from `/api/health`: loading, healthy, degraded (which service, why) and backend-unreachable states. |
 
@@ -325,6 +325,39 @@ answer exists.
 - Trade-off: PostgreSQL `ts_rank` is not true BM25. The alternative is Qdrant's sparse vectors with
   BM25. We chose PostgreSQL FTS because it is transparent, needs no extra model, and lives where
   the text already is. This decision can be revisited and is logged.
+
+**Implemented in M10** (`services/keyword_search.py`, `services/retrieval.py`, `routes/search.py`,
+`pages/Search.jsx`; D55–D58), with one change to the keyword query:
+
+- **Any word, ranked by coverage (D55).** `websearch_to_tsquery` requires *every* word; measured on
+  the user's 74 chunks it returned nothing for every full question ("How many days of annual leave
+  can I carry forward to next year?"). The query's own lexemes (from `to_tsvector('english', q)`,
+  quoted by hand and cast `::tsquery`, so nothing is re-parsed) are OR-ed, and results are ranked
+  by **how many distinct query words a chunk contains**, then `ts_rank_cd` (normalised to 0..1).
+  Counting words first is a cheap stand-in for IDF, which `ts_rank` lacks (L44).
+- **PostgreSQL confirms before fusing (D56).** Qdrant returns ids; one query loads text + metadata
+  only for chunks of `ready` documents in the caller's KB. Ranks are counted after that filter, so
+  orphan points or documents being reprocessed never take a rank. Each retriever returns at least
+  `RETRIEVAL_TOP_K` (20) candidates; the caller gets `top_k` (1–50).
+- **Threshold.** `min_score` is a minimum cosine, applied to the semantic list before fusion. It
+  doesn't apply to keyword or RRF scores, which encode matches and ranks, not similarity (L47).
+- **Overlap and degrade (D57).** The semantic side (embed ~30 ms + Qdrant ~150 ms) runs in a worker
+  thread while PostgreSQL does the ownership check and the keyword query: hybrid ~250 ms vs ~355 ms
+  sequential (warm). If Qdrant or the model fails, semantic mode returns 503 and hybrid returns the
+  keyword results with a notice.
+- **Timings.** Every response carries `timings_ms` per stage; `connect_and_scope_check` includes
+  taking a pooled connection, which is where cold searches spend their extra time (L45). The query
+  text is never logged.
+
+```
+POST /api/knowledge-bases/{kb_id}/search
+{"query": "carry forward leave", "mode": "hybrid", "top_k": 10,
+ "document_id": null, "min_score": null}
+→ {"mode": "hybrid", "results": [{chunk_id, document_id, filename, doc_code, doc_version,
+   doc_status, chunk_index, section, page_start, page_end, text, score,
+   semantic_rank, semantic_score, keyword_rank, keyword_score, keyword_matched}],
+   "query_terms": null, "notice": null, "timings_ms": {...}}
+```
 
 ### 4.4 Reranking
 

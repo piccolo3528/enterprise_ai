@@ -8,7 +8,7 @@ export const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, ready: true },
   { to: "/knowledge-bases", label: "Knowledge bases", icon: Library, ready: true },
   { to: "/chat", label: "Chat", icon: MessagesSquare, ready: false },
-  { to: "/search", label: "Search", icon: Search, ready: false },
+  { to: "/search", label: "Search", icon: Search, ready: true },
   { to: "/status", label: "System status", icon: Activity, ready: true },
   { to: "/settings", label: "Settings", icon: Settings, ready: false },
 ];

@@ -4,10 +4,11 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M9 done: backend and frontend skeletons, the database schema on Neon
+> **Project status: M0–M10 done: backend and frontend skeletons, the database schema on Neon
 > (Singapore), accounts, private knowledge bases with a dashboard, document upload with
-> background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector, and
-> local embeddings stored in Qdrant (with safe deletes and a rebuild script). Next: search (M10).**
+> background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector,
+> local embeddings stored in Qdrant (with safe deletes and a rebuild script), and semantic,
+> keyword and hybrid search. Next: retrieval evaluation (M11).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -347,8 +348,13 @@ frontend.
   ```
 - A document shown as **Deleting** means the vector database was unreachable during a delete:
   delete it again to finish.
+- **Search** (sidebar, or the Search button on a knowledge base): *Hybrid* combines meaning and
+  exact words, *Semantic* finds similar meaning in other words, *Keyword* needs one of your words
+  in the passage (good for codes like `NX-HR-002`). If Qdrant is unreachable, hybrid search shows
+  keyword matches with a notice. The first search after a few idle minutes is slower
+  (~0.5–0.8 s) while connections are re-opened.
 
-### 13. Run the tests *(verified; M9: 185 unit + 73 live backend, 65 frontend)*
+### 13. Run the tests *(verified; M10: 214 unit + 91 live backend, 77 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)

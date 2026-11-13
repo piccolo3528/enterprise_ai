@@ -40,7 +40,7 @@ describe("App routing and layout (signed in)", () => {
     renderApp("/status");
     const nav = await screen.findByRole("navigation", { name: "Main" });
     const links = Array.from(nav.querySelectorAll("a")).map((a) => a.textContent);
-    expect(links).toEqual(["Dashboard", "Knowledge bases", "System status"]);
+    expect(links).toEqual(["Dashboard", "Knowledge bases", "Search", "System status"]);
     expect(nav).toHaveTextContent("ChatSoon");
   });
 

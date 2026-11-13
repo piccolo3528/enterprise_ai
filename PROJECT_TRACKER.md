@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-11** · Current milestone: **M9 — Embeddings & Vector Storage (COMPLETED)** · Next: **M10 — Retrieval & Search UI**
+> Last updated: **2026-11-13** · Current milestone: **M10 — Retrieval & Search UI (COMPLETED)** · Next: **M11 — Evaluation Framework v1 (Retrieval)**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -177,9 +177,9 @@ explain the concept back in your own words (or answer the related interview ques
 | 26 | Vector database & ANN (HNSW) | Approximate nearest-neighbour index trades exactness for speed | IN PROGRESS (M9: Qdrant collection with default HNSW; filtered search ~152 ms from India to Sydney. Tuning/recall vs exact search: M11) | ☐ | `services/vector_store.py` |
 | 27 | Metadata filtering | Restricting search to a KB/document via payload filters | COMPLETED (M9: indexed `kb_id` (tenant), `owner_id`, `document_id`, `doc_status`; Qdrant Cloud's strict mode refuses filters on unindexed fields) | ☐ | `services/vector_store.py` |
 | 28 | Derived data & reindexing | Vectors are derived from PostgreSQL text, so Qdrant can be rebuilt | COMPLETED (M9: `reindex.py` rebuilt the user's 74 points in 70 s; `--check` compares per document) | ☐ | `scripts/reindex.py` |
-| 29 | Top-K & similarity thresholds | How many results to fetch; minimum score to count as relevant | NOT STARTED | ☐ | `retrieval.py` |
-| 30 | Keyword (lexical) search | Exact-term matching (PostgreSQL FTS); good for codes, names, numbers | IN PROGRESS (M1: FTS verified on Neon) | ☐ | `scripts/verify_setup.py` → `keyword_search.py` (M10) |
-| 31 | Hybrid search & RRF | Fusing dense and sparse rankings by rank, not raw score | NOT STARTED | ☐ | `retrieval.py` |
+| 29 | Top-K & similarity thresholds | How many results to fetch; minimum score to count as relevant | COMPLETED (M10: `top_k` 1–50 shown, ≥ `RETRIEVAL_TOP_K` (20) candidates per retriever; `min_score` = minimum cosine, semantic side only: keyword and RRF scores aren't similarities. The "not enough information" gate is M12) | ☐ | `services/retrieval.py` |
+| 30 | Keyword (lexical) search | Exact-term matching (PostgreSQL FTS); good for codes, names, numbers | COMPLETED (M10: any of the query's lexemes, ranked by words matched then `ts_rank_cd`; "all words" found nothing for 3/3 full questions on the user's data, D55) | ☐ | `services/keyword_search.py` |
+| 31 | Hybrid search & RRF | Fusing dense and sparse rankings by rank, not raw score | COMPLETED (M10: RRF k=60 written by hand, hand-computed tests; on the user's data hybrid put the current "Work From Anywhere" (v2.0) above the archived v1.0 section that semantic alone ranked first) | ☐ | `services/retrieval.py` |
 | 32 | Bi-encoder vs cross-encoder | Separate encodings (fast) vs joint reading (accurate) | IN PROGRESS (M1 demo: 0.78/0.62 vs 9.48/−3.96) | ☐ | `scripts/download_models.py` → `reranker.py` (M14) |
 | 33 | Reranking | Precise second-stage ordering of a small candidate set | NOT STARTED | ☐ | `reranker.py` |
 | 34 | RAG pipeline | Retrieve first, then generate only from what was retrieved | NOT STARTED | ☐ | `rag.py` |
@@ -202,7 +202,7 @@ explain the concept back in your own words (or answer the related interview ques
 | 51 | Answer relevance | Does the answer address the question? | NOT STARTED | ☐ | `evaluation/metrics.py` |
 | 52 | Latency profiling | Per-stage timings to find bottlenecks (incl. Neon cold start) | NOT STARTED | ☐ | `rag.py`, `evaluation/run_eval.py` |
 | 53 | Cross-store consistency | Ordering writes/deletes across Neon and Qdrant to fail safely | NOT STARTED | ☐ | `ingestion/pipeline.py`, `routes/documents.py` |
-| 54 | Async I/O & thread offloading | `async` routes stay responsive; blocking clients run in threads (`asyncio.to_thread`); independent calls run concurrently (`gather`) | IN PROGRESS (M2: health checks run in parallel: ~1 s, not ~1.6 s) | ☐ | `services/health.py`, `factory.py` |
+| 54 | Async I/O & thread offloading | `async` routes stay responsive; blocking clients run in threads (`asyncio.to_thread`); independent calls run concurrently (`gather`) | COMPLETED (M2: health checks in parallel ~1 s not ~1.6 s; M10: the semantic side runs in a worker thread while PostgreSQL does the ownership check + keyword query: hybrid ~250 ms vs ~355 ms sequential) | ☐ | `services/health.py`, `services/retrieval.py` |
 | 55 | Observability: request IDs & error contracts | One ID ties a response, its error body and its log lines together; one stable error shape; internals never leak | COMPLETED (M2) | ☐ | `core/middleware.py`, `core/errors.py`, `core/logging.py` |
 | 56 | Latency budgets & round trips | Count network round trips per request; distance sets the price of each | COMPLETED (M4: region move + autocommit reads; ~815 → 109 ms per read) | ☐ | `ARCHITECTURE.md` §4.12, `db/session.py` |
 | 57 | Dev proxy & same origin | The browser talks to one origin; Vite forwards `/api` to FastAPI, so no CORS and no secrets in the browser | COMPLETED (M3) | ☐ | `frontend/vite.config.js` |
@@ -217,6 +217,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 65 | Polling without pile-ups | A `setTimeout` chain (next request only after the last answer) that stops when nothing is pending | COMPLETED (M7) | ☐ | `hooks/useDocuments.js` |
 | 68 | Consistency across two stores without a transaction | Order the writes and mark state first (`deleting`), so every failure or race leaves something harmless and repairable | COMPLETED (M9: ready only after Qdrant confirms; deletes Qdrant → PostgreSQL → disk; races and outages tested live) | ☐ | `ingestion/pipeline.py`, `services/documents.py` |
 | 69 | Measure before adding a lock | Shared CPU model: a lock made searches wait 4–13 s behind a document (unfair lock); without one, 129 ms median and no errors | COMPLETED (M9) | ☐ | `services/embeddings.py` |
+| 70 | Coverage-first keyword ranking | Rank by how many distinct query words a passage contains, then by `ts_rank_cd`; a cheap stand-in for IDF, which PostgreSQL's rank lacks | COMPLETED (M10: "carry forward leave" → both carry-forward sections on top instead of "Leave Year and Leave Types") | ☐ | `services/keyword_search.py` |
+| 71 | Graceful degradation | When one dependency fails, return what still works and say so | COMPLETED (M10: Qdrant down → hybrid returns keyword results + a notice; semantic → 503 naming the working alternative) | ☐ | `services/retrieval.py`, `pages/Search.jsx` |
 | 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
 ---
@@ -384,15 +386,17 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M8.
 - **Testing:** 185 unit (+23: cosine, prefix, real model, VectorStore on in-memory Qdrant) · 73 live (+6 new, 4 extended, on the `chunks_test` collection) · 65 frontend (+1) (§F.8).
 
-### M10 — Retrieval & Search UI · `NOT STARTED`
+### M10 — Retrieval & Search UI · `COMPLETED` (2026-11-13)
 - **Objective:** Semantic, keyword and hybrid search with filters, top-K and thresholds.
 - **Tasks:**
-  - [ ] Dense search; PostgreSQL FTS; RRF by hand
-  - [ ] `POST /api/knowledge-bases/{id}/search` (`mode = semantic|keyword|hybrid`)
-  - [ ] Frontend Search page (mode toggle, document filter, result cards with doc/page/score/snippet)
-- **Expected output:** "carry forward leave" finds the right Leave Policy passage in all three modes.
+  - [x] Keyword search (`services/keyword_search.py`): any of the query's lexemes (quoted by hand and cast, so nothing is re-parsed), ranked by words matched, then `ts_rank_cd` (normalised 0..1); only `ready` documents in a KB the caller owns. Chosen by measurement on the user's 74 chunks (D55)
+  - [x] Retrieval (`services/retrieval.py`): semantic (Qdrant ids → PostgreSQL rows of ready documents: orphan points and documents being reprocessed/deleted never surface), keyword, hybrid (RRF k=60 by hand); ranks counted after PostgreSQL's filter; `top_k`, ≥ 20 candidates per side, `min_score` on cosine; per-stage timings; the query is never logged (D56)
+  - [x] Semantic side in a worker thread while PostgreSQL runs the ownership check + keyword query; Qdrant/model down → semantic 503, hybrid = keyword results + notice (D57)
+  - [x] `POST /api/knowledge-bases/{id}/search` (`query` ≤ 500 chars, trimmed, control characters refused; `mode`, `top_k` 1–50, `document_id`, `min_score`); a KB or document that isn't yours → 404
+  - [x] Frontend Search page (`/search`, sidebar link live): knowledge base select, document filter (ready documents), mode toggle (radio group), result cards (doc code + version, archived badge, section, pages, score explained per mode, ranks in hybrid, "Show more" only when text is cut off), notices, empty/error states; state in the URL; "Search" button on each KB page (D58)
+- **Expected output:** "carry forward leave" finds the right Leave Policy passage in all three modes. **Achieved** on the user's HR Policies (all three modes: §10.1 Carried-forward balances, then §6 Carry-Forward) and in the live tests.
 - **Dependencies:** M9.
-- **Testing:** unit (RRF on hand-made rankings); integration (filter isolation, threshold).
+- **Testing:** 29 unit (RRF vs hand-computed values, the orchestration with fakes, request rules, route guards) + 18 live (every mode, isolation between users/KBs, document filter, threshold, ready-only, odd characters, Qdrant down) + 12 frontend; Chrome on the user's servers (§F.8).
 
 ### M11 — Evaluation Framework v1 (Retrieval) · `NOT STARTED`
 - **Objective:** Measure retrieval quality to set the baseline.
@@ -494,13 +498,16 @@ Each milestone is small enough to finish, test and understand in one or two sess
   reprocessing (endpoint and script).
 - Embeddings & vector storage (M9): every ready chunk has exactly one Qdrant point; deletes remove
   vectors, rows and files in a safe order; `reindex.py` rebuilds or checks the collection.
-- Next: retrieval and the search page (M10).
+- Search (M10): semantic, keyword and hybrid search of a knowledge base with a document filter,
+  top-K and a similarity threshold; Search page with explained scores; degrades to keyword
+  search when Qdrant is down.
+- Next: retrieval evaluation (M11).
 
 ### F.2 In progress
-- Nothing. M10 (retrieval & search UI) is next.
+- Nothing. M11 (retrieval evaluation) is next.
 
 ### F.3 Remaining functionality
-- Everything in M10–M17 (M18 optional).
+- Everything in M11–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -552,6 +559,10 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L41 | Dense retrieval alone (measured on the user's data, 3 questions) | The BGE prefix changed no top result; an archived v2.0 passage ranked 3rd; "sick during my holiday" found no sick-leave passage | Prefix benefit measured in M11; `doc_status` filter (S4) in M14; keyword + hybrid search in M10; reranking in M14 |
 | L42 | Startup recovery could mark a document failed whose reprocess was clicked in the first seconds after a restart (before recovery ran) | A retry right after a restart shows "interrupted" | Pre-existing since M7, noticed in M9; retry again. Fix: record the queue time, not `created_at` |
 | L43 | One unexplained "session expired" (401) in Chrome on the first KB delete in M9 | The delete didn't happen; the user was sent to sign in | Not reproduced: the second attempt with network capture returned 204. The dev server logs only to its console, so the failing request couldn't be identified. Watch for it |
+| L44 | Keyword ranking has no IDF (PostgreSQL `ts_rank` doesn't know a word is in every chunk) | Common words weigh like rare ones; coverage-first ranking (D55) helps but isn't BM25 | Hybrid fusion compensates; measure in M11; Qdrant sparse vectors (BM25) or hand-computed IDF are the alternatives |
+| L45 | First searches after a few idle minutes take 500–800 ms server time (warm: ~250 ms) | Pooled Neon connections older than 240 s are replaced (new TLS to Singapore) and Qdrant's keep-alive to Sydney closes; the time shows in `connect_and_scope_check` / `vector_search` | Deliberate settings (D23 recycle + pre-ping); measured in Chrome, not a code path. A keep-alive would burn Neon free hours (D30) |
+| L46 | A document being reprocessed disappears from search until it is ready again | Searches during the reprocess (seconds) miss it | Follows from "ready = searchable" (D51/D56); keeping the old chunks searchable needs versioned chunk sets |
+| L47 | Only cosine has a meaningful threshold; keyword (matched words) and RRF scores encode ranks, not confidence | `min_score` filters only the semantic side; there is no "nothing relevant" signal in keyword/hybrid mode | The answerability gate uses the cross-encoder's score (M12/M14), which is comparable across queries |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -608,6 +619,10 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D52 | 2026-11-11 | Deletes: mark `deleting` (document, or all documents of the KB) → Qdrant → PostgreSQL → disk; Qdrant failure → 503, the document stays `deleting`, deleting again completes | The mark stops a still-running job from writing `ready`, so it removes its own points (race tested live); nothing user-visible is half-deleted | Delete rows first and clean Qdrant later (orphans); restore the old status on failure | Accepted (M9) |
 | D53 | 2026-11-11 | `reindex.py` recreates the collection and re-embeds every chunk of every ready document; `--check` compares points per document with PostgreSQL | PostgreSQL is the system of record, so Qdrant is disposable (free clusters are deleted after 4 weeks idle) | Incremental repair only; alias swap (zero downtime, more moving parts) | Accepted (M9) |
 | D54 | 2026-11-11 | Tests: VectorStore unit tests on qdrant-client's in-memory mode; live tests on the real cluster's `chunks_test` collection, deleted before and after the session (refuses to run if it is the app's collection) | Fast unit tests with the real client API; live tests catch what memory mode doesn't (strict mode) | A fake client; the dev collection | Accepted (M9) |
+| D55 | 2026-11-13 | Keyword search: OR of the query's lexemes (built from `to_tsvector`, each quoted by hand and cast `::tsquery`), ranked by distinct words matched, then `ts_rank_cd` (normalisation 32); score = matched + rank | Measured on the user's 74 chunks: `websearch_to_tsquery` (AND, the original §4.3 plan) returned 0 rows for 3/3 full questions; plain OR ranking put "Leave Year and Leave Types" first for "carry forward leave" (no IDF); coverage-first put both carry-forward sections on top. All variants ~60 ms (one round trip) | AND (`websearch_to_tsquery`); OR ranked by `ts_rank_cd` only; length normalisation (flag 1); BM25 via Qdrant sparse vectors | Accepted (M10) |
+| D56 | 2026-11-13 | Retrieval: PostgreSQL confirms every hit (ready document, caller's KB) **before** fusion, so ranks are counted among valid chunks; ≥ `RETRIEVAL_TOP_K` (20) candidates per retriever, `top_k` returned; `min_score` = cosine, semantic side only; RRF k=60 written by hand | "Ready = searchable" holds for search too; orphan points (L40) never surface; fusing before filtering would let invisible chunks take ranks | Trust Qdrant's payload; text in the Qdrant payload; library fusion | Accepted (M10) |
+| D57 | 2026-11-13 | The semantic side (embed + Qdrant) runs in a shared 8-thread pool while the request thread does the ownership check + keyword query on PostgreSQL; semantic failures → 503 in semantic mode, keyword results + notice in hybrid | Measured on the user's data: hybrid ~250–300 ms vs ~355 ms sequential; a search box that still works when Qdrant is down | Sequential; `async` route + `asyncio.gather` (same overlap, but the DB session is sync); fail hybrid entirely | Accepted (M10) |
+| D58 | 2026-11-13 | Search page state (`kb`, `q`, `mode`, `doc`) lives in the URL; KB select on the page plus a "Search" button on each KB; no threshold control in the UI (API only); scores explained in words per mode | Bookmarkable searches and a working Back button; a raw RRF number means nothing to a user; the threshold is tuned with data in M11 | Component state only; a search box per KB page | Accepted (M10) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -687,6 +702,13 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-11 | M9 | `pytest` (unit) | ✔ 185 passed | +23: cosine (hand-computed, angle only, zero/mismatch errors), prefix on queries only + batch/normalize options (fake model), only English BGE gets a prefix, real model (384 numbers of length 1, cosine = dot, relevant > unrelated by > 0.1, prefix moves the query vector), VectorStore on in-memory Qdrant (create once, wrong dimension refused, 2-batch upsert + counts, same id overwrites, delete keeping fresh ids, KB delete, no-collection no-ops, search needs owner + KB and scores = cosine, recreate), startup warm-up incl. model + collection |
 | 2026-11-11 | M9 | `pytest -m live` (Neon test branch + Qdrant `chunks_test`) | ✔ 73 passed | First run 2 failed: Qdrant Cloud strict mode, 400 "Index required but not found for owner_id" (in-memory mode doesn't enforce it) → `owner_id` indexed. New: one point per chunk with the exact payload; search confined to one owner's KB (identical text in Bob's KB never returned, cross ids → nothing), best hit = the right passage; Qdrant score = hand cosine (1e-4); Qdrant down during ingest → failed, 0 chunks, reprocess → ready with points; Qdrant down during delete → 503, `deleting`, reprocess 409, delete again → 204 and 0 points; **document deleted while being indexed** → stays `deleting`, 0 chunks, 0 points. Extended: delete document/KB removes points, reprocess replaces points, failed reprocess leaves 0 points |
 | 2026-11-12 | M9 | Final full live run | ⚠ then ✔ | First final run: 72 passed, 1 failed (`/api/health` hit its 15 s check timeout) and the run took 21 min instead of ~4: the network was slow again (L34). Re-run on a healthy network (google.com 0.55 s): health test 3/3 in 4.3 s, full suite **73 passed in 4 min 4 s** |
+| 2026-11-13 | M10 | Keyword query design, measured read-only on the user's "HR Policies" (74 chunks) | ℹ decided | AND (`websearch_to_tsquery`): 0 rows for "How many days of annual leave can I carry forward to next year?", "Can I work from another country?", "What happens if I get sick during my holiday?"; OR + `ts_rank_cd`: results, but "Leave Year and Leave Types" 1st for "carry forward leave"; coverage-first: both carry-forward sections 1st–3rd, §6.1 from 4th to 2nd on the long question; all ~60 ms (D55) |
+| 2026-11-13 | M10 | `retrieval.search` on the user's KB, 4 questions × 3 modes (read-only) | ✔ | "carry forward leave": all three modes → §10.1 Carried-forward balances, §6 Carry-Forward (v3.0), §6 (v2.0). "Can I work from another country?": semantic 1st = archived v1.0 "Working from Home", hybrid 1st = current v2.0 "Work From Anywhere" (semantic #2 + keyword #4). "Sick during my holiday": still weak in every mode (L41). Timings: semantic ~245 ms (embed 30, Qdrant 150, passages 60, scope check overlapped), keyword ~177 ms, hybrid 248–308 ms (~355 sequential) |
+| 2026-11-13 | M10 | `ruff check` | ✔ clean | New files formatted; two M9 files (`pipeline.py`, `vector_store.py`) still differ from `ruff format` (cosmetic, left as is) |
+| 2026-11-13 | M10 | `pytest` (unit) | ✔ 214 passed | +29: RRF vs hand-computed scores (incl. "found by both beats one 1st place", k, ties, repeats), search orchestration with fakes (each mode, keyword never embeds, top-K vs candidates, threshold before fusion, unconfirmed chunks dropped and ranks closed up, 503 vs hybrid fallback, failing model, common-words notice, 404 in every mode, timings), request rules (trim, NUL, length, mode, top_k, min_score, document id), route guards (401, malformed id 404, empty query 422). One test's own data was wrong (an item 1st in a list, not 2nd): fixed the test |
+| 2026-11-13 | M10 | `pytest -m live` | ✔ 91 passed (9 min 20 s) | +18 search tests (real FTS, model, Qdrant `chunks_test`): every mode finds the carry-forward passage first with the right score shape (hybrid score = Σ 1/(60+rank)); keyword needs a shared word, semantic doesn't ("overseas abroad"); exact code NX-HR-002; scores sorted + threshold between 1st and 2nd keeps 1; top_k; document filter in each mode; a document in another KB / another user's / random → 404; identical texts in Bob's KB never returned to Alice, Bob's KB = random id; a `processing` document is invisible; only-common-words notice; quotes, backslashes, SQL and tsquery operators are plain text; empty KB; Qdrant down → semantic 503, hybrid keyword + notice |
+| 2026-11-13 | M10 | `npm test` / `npm run build` | ✔ 77 passed / ✔ | +12 Search page tests (and the sidebar test now expects Search as a link): sidebar link, hybrid search + result card, mode switch re-runs (scores explained per mode), document filter offers ready documents only, `?kb=` and KB select, archived badge, empty query refused locally, no-results hint per mode, notice replaces the hint, server notice + "not in semantic", error with reference + Retry, no KBs → link. Build 389 kB JS (123 kB gzipped) |
+| 2026-11-13 | M10 | Chrome on the user's servers, throwaway account | ✔ | KB page → "Search" carries the KB; "What happens if I get sick during my holiday?" → hybrid §7 Sick Leave 1st (semantic #1, keyword #1); semantic 0.667; keyword "what is the" → notice; document filter (`days` → remote-work.txt only); URL holds the state. Found and fixed: "Show more" on texts that fit; the generic hint repeated the notice. Server time 693–843 ms on first searches → per-stage timings showed reconnects (L45), warm 247–276 ms. One page load timed out while my `retrieval.py` edit restarted the `--reload` server; Retry worked. Cleanup: KB delete 204, 0 points, folder gone, test user removed; user's data 74 chunks = 74 points (`reindex.py --check` OK) |
 | 2026-11-11 | M9 | Dev environment | ✔ | Server warm-up created `chunks` (384-d cosine, 4 indexes); `reindex.py --check` found the 5 pre-M9 documents with 0 points; `reindex.py`: **74 chunks of 5 documents in 70 s** (model load 45 s cold) → check OK |
 | 2026-11-11 | M9 | Read-only semantic search on the user's KB "HR Policies" | ℹ | "carry forward" → §6.1 Carry-forward (0.789) first; "another country" → remote-work §5 sections; filtered search **~152 ms** (first call 548 ms); prefix vs no prefix: same top-1 for all 3 questions; archived v2.0 passage 3rd; "sick during my holiday" weak (L41) |
 | 2026-11-11 | M9 | `npm test` / `npm run build` | ✔ 65 passed / ✔ | +1: a delete that gets 503 shows the server's message, the row turns "Deleting" with a hint, deleting again completes. Build 380 kB JS (120 kB gzipped) |
@@ -728,6 +750,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **Added in M7:** pymupdf 1.28.2 (pinned < 2, D40), python-docx 1.2.0 (lxml 6.1.3), python-multipart 0.0.33; charset-normalizer 3.5.2 and PyYAML 6.0.3 now declared directly. Frontend: none.
 **M8:** tokenizers 0.23.3 and huggingface-hub 2.4.0 now declared directly (already installed via sentence-transformers). New setting `CHUNK_STRATEGY` (default `auto`).
 **M9:** no new dependencies (sentence-transformers, torch and qdrant-client were installed in M1). Qdrant Cloud collection `chunks` (384-d cosine; indexes `kb_id` tenant, `owner_id`, `document_id`, `doc_status`), 74 points. Live tests use `chunks_test` (deleted after each run). No new settings.
+**M10:** no new dependencies; no new settings (`RETRIEVAL_TOP_K` = candidates per retriever).
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -821,9 +844,17 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   filtered field): keep a live suite; don't repeat a claim you haven't measured (the BGE prefix
   changed no top result on 3 questions, so it's an M11 question now); Windows takes ~2 s to
   refuse a connection to a closed localhost port.
+- **M10:** test the plan against real queries before building it: `websearch_to_tsquery` (the
+  design) found nothing for every full question, because questions contain words answers don't;
+  PostgreSQL's rank has no IDF, so "leave" outweighed "carry forward" in a leave policy, and
+  counting matched words first was a cheap fix; filter before fusing, or invisible chunks take
+  ranks; RRF needs no score calibration, which is also why its scores can't be a threshold;
+  per-stage timings turned "search is slow in the browser" into "the first query of a request
+  pays for the connection" in one call; a one-line feature (Show more) still needed the browser
+  to show it was wrong; when a test fails, check the test's data first (it was wrong again).
 
 ### F.10 Next recommended action
-1. Start **M10 — Retrieval & Search UI** (dense search via Qdrant joined to PostgreSQL chunks of ready documents; PostgreSQL full-text search; Reciprocal Rank Fusion by hand; `POST /api/knowledge-bases/{id}/search` with `semantic|keyword|hybrid`; Search page with mode toggle, document filter and result cards).
+1. Start **M11 — Evaluation Framework v1 (Retrieval)** (a labelled question set over the corpus incl. unanswerable questions; Hit rate@K, Recall@K, Precision@K, MRR by hand; per-stage latency; `run_eval.py` report + failure listing; semantic vs keyword vs hybrid, with vs without the BGE prefix; chunking configurations compared).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
 
@@ -858,6 +889,7 @@ wired in behind the LLM provider interface in M12.
 - **Latency engineering**: region choice + autocommit reads, measured (~815 → 109 ms per read) (M4).
 - **Isolated database tests**: Neon branch, transaction rollback per test, dev-host guard (M4).
 - **Authentication**: Argon2id with no account-enumeration leaks, JWT in an httpOnly/Secure/SameSite=Strict cookie, route guards, session-expiry handling (M5).
+- **Retrieval**: semantic, keyword and hybrid search with RRF written by hand; keyword ranking chosen by measuring on real questions (any word, ranked by words matched); PostgreSQL confirms every vector hit before fusion; top-K, a cosine threshold, per-stage timings, the semantic side overlapped with PostgreSQL, and a keyword fallback when Qdrant is down (M10).
 - **Embeddings & vector storage**: local CPU embeddings loaded once (measured: no lock, batch 16), hand-written cosine, Qdrant with indexed tenant filters that require owner + KB, ordered writes/deletes across Qdrant/PostgreSQL/disk with races and outages tested live, and a rebuild/check script (M9).
 - **Chunking**: four strategies written from scratch with token-exact sizing (the embedding model's tokenizer), page/section metadata from character spans, structure-aware chunks with context headers, batched inserts, chunk inspector and reprocessing (M8).
 - **Secure document ingestion**: upload checks before the body is read, magic bytes, zip-bomb guard, server-side names, hash-while-saving, background processing with a safe status lifecycle, and extraction from PDF/DOCX/Markdown/TXT with measured encoding handling (M7).
@@ -876,8 +908,8 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 2 | Why RAG instead of fine-tuning? | After M12 |
 | 3 | How did you choose chunk size and overlap? Show data. | After M11 |
 | 4 | What is an embedding? What does cosine similarity measure, and why normalize? | In Notion (M9) |
-| 5 | Why hybrid search? When does keyword beat semantic? | After M10 |
-| 6 | What is Reciprocal Rank Fusion, and why not add scores? | After M10 |
+| 5 | Why hybrid search? When does keyword beat semantic? | In Notion (M10) |
+| 6 | What is Reciprocal Rank Fusion, and why not add scores? | In Notion (M10) |
 | 7 | Bi-encoder vs cross-encoder: why not cross-encode everything? | After M14 |
 | 8 | How do you stop the model hallucinating? | After M12 |
 | 9 | How do you handle prompt injection in retrieved documents? | After M12 |
@@ -925,6 +957,9 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 51 | If your vector database were lost tomorrow, what would you do? | In Notion (M9) |
 | 52 | Several requests share one embedding model. Do you need a lock? | In Notion (M9) |
 | 53 | What did a test double hide that a live test caught? | In Notion (M9) |
+| 54 | Your keyword search found nothing for full questions. Why, and what did you change? | In Notion (M10) |
+| 55 | A search calls two remote services. How do you keep it fast, and how do you find what's slow? | In Notion (M10) |
+| 56 | What should search do when the vector database is down? | In Notion (M10) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 
