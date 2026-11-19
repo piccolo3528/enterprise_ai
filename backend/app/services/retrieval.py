@@ -99,6 +99,7 @@ class Passage:
     page_start: int | None
     page_end: int | None
     text: str
+    token_count: int = 0  # embedding-model tokens of `text` (counted at chunking time)
 
 
 @dataclass
@@ -176,6 +177,7 @@ def _load_passages(
             Chunk.page_start,
             Chunk.page_end,
             Chunk.text,
+            Chunk.token_count,
         )
         .join(Document, Document.id == Chunk.document_id)
         .join(KnowledgeBase, KnowledgeBase.id == Chunk.kb_id)

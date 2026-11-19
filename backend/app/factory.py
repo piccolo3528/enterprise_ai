@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
-from app.api.routes import auth, documents, health, knowledge_bases, search
+from app.api.routes import answers, auth, documents, health, knowledge_bases, search
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
@@ -27,6 +27,7 @@ from app.services.embeddings import get_embedder
 from app.services.health import app_version
 from app.services.ingestion.pipeline import recover_interrupted
 from app.services.ingestion.tokens import get_tokens
+from app.services.llm import build_llm
 from app.services.vector_store import VectorStore, build_qdrant_client
 
 logger = logging.getLogger("app")
@@ -64,12 +65,16 @@ async def _warm_up_services(app: FastAPI, embedding_model: str, started_at: date
             ),
         )
 
-    await asyncio.gather(
+    tasks = [
         database(),
         vectors(),
         # ~5 s the first time; loaded now so the first upload doesn't wait for it.
         _warm_up("Tokenizer", lambda: get_tokens(embedding_model)),
-    )
+    ]
+    sdk = getattr(getattr(app.state, "llm", None), "sdk", None)
+    if sdk is not None:  # ~10 s (SDK import + client); no network call, no quota
+        tasks.append(_warm_up("Gemini client", sdk))
+    await asyncio.gather(*tasks)
 
 
 def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> FastAPI:
@@ -87,6 +92,7 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
         app.state.read_session_factory = build_read_session_factory(app.state.engine)
         app.state.qdrant = build_qdrant_client(settings)
         app.state.vector_store = VectorStore(app.state.qdrant, settings.qdrant_collection)
+        app.state.llm = build_llm(settings)  # no network call; None without GEMINI_API_KEY
         # Warm-up runs in the background, so the server accepts requests immediately (and
         # `--reload` restarts stay fast). A request that arrives while the warm-up connection is
         # still busy opens a second connection of its own (~1.35 s): measured, not a bug.
@@ -118,4 +124,5 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
     app.include_router(knowledge_bases.router, prefix="/api")
     app.include_router(documents.router, prefix="/api")
     app.include_router(search.router, prefix="/api")
+    app.include_router(answers.router, prefix="/api")
     return app

@@ -1,7 +1,9 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 
 import AppLayout from "./components/layout/AppLayout";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/layout/RouteGuards";
+import Spinner from "./components/ui/Spinner";
 import Dashboard from "./pages/Dashboard";
 import DocumentChunks from "./pages/DocumentChunks";
 import KnowledgeBaseDetail from "./pages/KnowledgeBaseDetail";
@@ -11,6 +13,19 @@ import NotFound from "./pages/NotFound";
 import Register from "./pages/Register";
 import Search from "./pages/Search";
 import SystemStatus from "./pages/SystemStatus";
+
+// Loaded on first visit: the Markdown renderer it needs is ~130 kB of the bundle (measured:
+// 520 kB with it in the main bundle vs 389 kB before M12), and no other page uses it.
+const Chat = lazy(() => import("./pages/Chat"));
+
+function PageLoading() {
+  return (
+    <div className="flex items-center gap-3 text-sm text-slate-500">
+      <Spinner label="Loading page" />
+      Loading…
+    </div>
+  );
+}
 
 // The router lives in main.jsx (BrowserRouter), so tests can wrap <App /> in a MemoryRouter.
 export default function App() {
@@ -29,6 +44,14 @@ export default function App() {
           <Route
             path="knowledge-bases/:kbId/documents/:documentId"
             element={<DocumentChunks />}
+          />
+          <Route
+            path="chat"
+            element={
+              <Suspense fallback={<PageLoading />}>
+                <Chat />
+              </Suspense>
+            }
           />
           <Route path="search" element={<Search />} />
           <Route path="status" element={<SystemStatus />} />

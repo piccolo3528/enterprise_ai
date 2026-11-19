@@ -14,6 +14,8 @@ browser.
 
 from __future__ import annotations
 
+import math
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -28,9 +30,10 @@ class AppError(Exception):
     status_code = 400
     code = "bad_request"
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, *, headers: dict[str, str] | None = None) -> None:
         super().__init__(message)
         self.message = message
+        self.headers = headers
 
 
 class UnauthorizedError(AppError):
@@ -75,6 +78,52 @@ class ServiceUnavailableError(AppError):
     code = "service_unavailable"
 
 
+# --- the LLM (M12, ARCHITECTURE §4.7) --------------------------------------------------------
+
+
+class AnswerBlockedError(AppError):
+    """The LLM refused to answer (a safety filter), so there is no answer to show."""
+
+    status_code = 422
+    code = "answer_blocked"
+
+
+class RateLimitedError(AppError):
+    """Too many LLM requests this minute. Retrying later works; `Retry-After` says when."""
+
+    status_code = 429
+    code = "rate_limited"
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        # Whole seconds, rounded up; round() first so 6.000000000000001 s says 6, not 7.
+        seconds = max(1, math.ceil(round(retry_after, 3))) if retry_after else None
+        headers = {"Retry-After": str(seconds)} if seconds else None
+        super().__init__(message, headers=headers)
+        self.retry_after = retry_after
+
+
+class QuotaExhaustedError(AppError):
+    """The daily free-tier quota is used up: retrying today won't help."""
+
+    status_code = 429
+    code = "quota_exhausted"
+
+
+class LLMNotConfiguredError(AppError):
+    """No API key, a key the provider rejects, or a model name it doesn't know: a server
+    configuration problem, not something the user can fix by retrying."""
+
+    status_code = 503
+    code = "llm_not_configured"
+
+
+class LLMUnavailableError(AppError):
+    """The LLM service failed or didn't answer in time, even after retries."""
+
+    status_code = 503
+    code = "llm_unavailable"
+
+
 # Codes for errors raised by FastAPI/Starlette itself (unknown route, wrong method, ...).
 _HTTP_CODES = {
     400: "bad_request",
@@ -94,7 +143,9 @@ def error_body(code: str, message: str, **extra) -> dict:
 
 
 async def _app_error(_: Request, exc: AppError) -> JSONResponse:
-    return JSONResponse(error_body(exc.code, exc.message), status_code=exc.status_code)
+    return JSONResponse(
+        error_body(exc.code, exc.message), status_code=exc.status_code, headers=exc.headers
+    )
 
 
 async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:

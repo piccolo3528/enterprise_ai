@@ -71,5 +71,10 @@ known-third-party = ["alembic"]
 testpaths = ["tests"]
 pythonpath = ["."]  # so tests can `from tests.helpers import ...`
 # Tests marked "live" talk to the real Neon/Qdrant from backend/.env: run them with `pytest -m live`.
-addopts = "-m 'not live'"
-markers = ["live: needs network access and the real services configured in backend/.env"]
+# Tests marked "gemini" also spend Gemini quota: run them with `pytest -m gemini`.
+addopts = "-m 'not live and not gemini'"
+markers = [
+    "live: needs network access and the real services configured in backend/.env",
+    # Opt-in even when running `-m live`: each run spends free-tier quota (3 calls).
+    "gemini: calls the real Gemini API; run with `pytest -m gemini`",
+]

@@ -31,7 +31,7 @@ describe("App routing and layout (signed in)", () => {
   });
 
   it("treats a not-yet-built page as not found, top bar included", async () => {
-    renderApp("/chat");
+    renderApp("/settings");
     expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByRole("banner")).toHaveTextContent("Page not found");
   });
@@ -40,8 +40,8 @@ describe("App routing and layout (signed in)", () => {
     renderApp("/status");
     const nav = await screen.findByRole("navigation", { name: "Main" });
     const links = Array.from(nav.querySelectorAll("a")).map((a) => a.textContent);
-    expect(links).toEqual(["Dashboard", "Knowledge bases", "Search", "System status"]);
-    expect(nav).toHaveTextContent("ChatSoon");
+    expect(links).toEqual(["Dashboard", "Knowledge bases", "Chat", "Search", "System status"]);
+    expect(nav).toHaveTextContent("SettingsSoon");
   });
 
   it("shows who is signed in", async () => {

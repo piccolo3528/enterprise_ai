@@ -4,12 +4,14 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M10 done: backend and frontend skeletons, the database schema on Neon
+> **Project status: M0–M12 done: backend and frontend skeletons, the database schema on Neon
 > (Singapore), accounts, private knowledge bases with a dashboard, document upload with
 > background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector,
 > local embeddings stored in Qdrant (with safe deletes and a rebuild script), semantic,
-> keyword and hybrid search, and a retrieval evaluation over 57 labelled questions
-> (hybrid: 96 % of answers in the top 5). Next: answers with Gemini (M12).**
+> keyword and hybrid search, a retrieval evaluation over 57 labelled questions
+> (hybrid: 96 % of answers in the top 5), and grounded answers from Gemini with validated
+> citations on a Chat page (7 of 7 unanswerable questions refused, 0 invalid citations).
+> Next: streaming and conversation memory (M13).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -354,13 +356,25 @@ frontend.
   in the passage (good for codes like `NX-HR-002`). If Qdrant is unreachable, hybrid search shows
   keyword matches with a notice. The first search after a few idle minutes is slower
   (~0.5–0.8 s) while connections are re-opened.
+- **Chat** (sidebar, or **Ask** on a knowledge base): pick a knowledge base and ask a question
+  (Enter sends, Shift+Enter adds a line). The answer comes from Gemini using only the 10 best
+  passages, with numbered citations: click a number to read the passage, its document, version
+  and section in the side panel. Older versions are marked **superseded**, and passages that look
+  like instructions to an AI are marked **Suspicious text**. If the documents don't answer, you get
+  *"I couldn't find the answer…"* instead of a guess. Each question is answered on its own and
+  isn't saved yet (conversations come in M13). Answers take ~2–3 s; the first question after the
+  server starts can take longer while the embedding model loads. Gemini settings are in
+  `backend/.env` (`LLM_TEMPERATURE`, `LLM_MAX_OUTPUT_TOKENS`, `LLM_TIMEOUT_SECONDS`,
+  `LLM_MAX_RETRIES`, `CONTEXT_MAX_SOURCES`); without `GEMINI_API_KEY` the page explains that
+  answering isn't configured.
 
-### 13. Run the tests *(verified; M11: 237 unit + 91 live backend, 77 frontend)*
+### 13. Run the tests *(verified; M12: 309 unit + 98 live backend (+3 real-Gemini), 88 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)
 pytest                      # unit tests: no network, don't read backend/.env
 pytest -m live              # live tests against the real Neon + Qdrant in backend/.env
+pytest -m gemini            # 3 real Gemini calls (opt-in: uses your free quota)
 ruff check app tests        # code-quality checks
 ruff format --check app tests
 
@@ -405,6 +419,7 @@ make that first request a little slower.
 - Qdrant Cloud's free cluster is suspended after 1 week unused and deleted after 4 weeks (vectors can be rebuilt from PostgreSQL).
 - Scanned PDFs (images without a text layer) aren't supported, because there is no OCR.
 - DOCX citations show the section rather than the page number.
+- Chat answers one question at a time and doesn't save conversations yet (M13).
 - PyMuPDF is AGPL-licensed.
 
 The full list with mitigations is in [PROJECT_TRACKER.md §F.5](PROJECT_TRACKER.md).

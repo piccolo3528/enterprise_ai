@@ -38,7 +38,9 @@ export function ProtectedRoute() {
 
   if (status === "loading" || status === "error") return <SessionCheck />;
   if (status === "anonymous") {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    // The query string too: Chat (?kb=) and Search (?kb=&q=&mode=) keep their state in the URL.
+    const from = location.pathname + location.search + location.hash;
+    return <Navigate to="/login" replace state={{ from }} />;
   }
   return <Outlet />;
 }

@@ -15,6 +15,20 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")  # tabs are fine; line breaks
 _WHITESPACE_RUN = re.compile(r"\s+")
 
 
+def clean_user_text(value: str, *, limit: int, what: str, empty: str) -> str:
+    """Typed text sent to search or to the LLM: control characters refused (NUL would make
+    PostgreSQL fail with a 500; others are never typed), whitespace runs collapsed, trimmed,
+    then the exact length checked."""
+    if _CONTROL.search(value):
+        raise ValueError(f"The {what} contains characters that aren't allowed")
+    value = _WHITESPACE_RUN.sub(" ", value).strip()
+    if not value:
+        raise ValueError(empty)
+    if len(value) > limit:
+        raise ValueError(f"Use at most {limit} characters")
+    return value
+
+
 class SearchRequest(BaseModel):
     query: str = Field(max_length=QUERY_MAX * 4)  # raw limit; the exact one is checked below
     mode: Literal["semantic", "keyword", "hybrid"] = "hybrid"
@@ -27,15 +41,9 @@ class SearchRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def _clean_query(cls, value: str) -> str:
-        # NUL would make PostgreSQL fail (a 500); other control characters are never typed.
-        if _CONTROL.search(value):
-            raise ValueError("The search contains characters that aren't allowed")
-        value = _WHITESPACE_RUN.sub(" ", value).strip()
-        if not value:
-            raise ValueError("Enter something to search for")
-        if len(value) > QUERY_MAX:
-            raise ValueError(f"Use at most {QUERY_MAX} characters")
-        return value
+        return clean_user_text(
+            value, limit=QUERY_MAX, what="search", empty="Enter something to search for"
+        )
 
 
 class SearchResultOut(BaseModel):

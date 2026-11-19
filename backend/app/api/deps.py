@@ -16,10 +16,11 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.core.errors import NotFoundError, UnauthorizedError
+from app.core.errors import LLMNotConfiguredError, NotFoundError, UnauthorizedError
 from app.core.security import SESSION_COOKIE, InvalidTokenError, decode_access_token
 from app.models import User
 from app.services.ingestion.pipeline import SessionFactory
+from app.services.llm import LLMProvider
 from app.services.storage import Storage
 from app.services.vector_store import VectorStore
 
@@ -128,6 +129,17 @@ def get_vector_store(request: Request) -> VectorStore:
     return request.app.state.vector_store
 
 
+def get_llm(request: Request) -> LLMProvider:
+    """The answer model built at startup; None means GEMINI_API_KEY isn't set."""
+    llm = request.app.state.llm
+    if llm is None:
+        raise LLMNotConfiguredError(
+            "AI answers aren't set up on this server: GEMINI_API_KEY is missing in backend/.env."
+        )
+    return llm
+
+
 StorageDep = Annotated[Storage, Depends(get_storage)]
+LLMDep = Annotated[LLMProvider, Depends(get_llm)]
 SessionFactoryDep = Annotated[SessionFactory, Depends(get_session_factory)]
 VectorStoreDep = Annotated[VectorStore, Depends(get_vector_store)]

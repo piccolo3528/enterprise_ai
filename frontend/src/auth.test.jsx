@@ -1,9 +1,12 @@
-import { screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import App from "./App";
 import { getMe, login, logout, register } from "./api/auth";
 import { ApiError } from "./api/client";
+import { AuthProvider } from "./context/AuthContext";
 import { renderApp, TEST_USER } from "./test/renderApp";
 
 vi.mock("./api/health", () => ({ getHealth: vi.fn(() => new Promise(() => {})) }));
@@ -39,6 +42,29 @@ describe("signing in", () => {
 
     expect(await screen.findByRole("heading", { name: "System status" })).toBeInTheDocument();
     expect(login).toHaveBeenCalledWith({ email: "ana@example.com", password: "a-long-passphrase" });
+  });
+
+  it("keeps the query string of the page that was asked for", async () => {
+    // Found in M12's Chrome check: an expired session on /chat?kb=… came back to /chat.
+    function ShowLocation() {
+      const location = useLocation();
+      return <output data-testid="location">{location.pathname + location.search}</output>;
+    }
+    login.mockResolvedValue(TEST_USER);
+    render(
+      <MemoryRouter initialEntries={["/status?kb=abc&mode=keyword"]}>
+        <AuthProvider>
+          <App />
+          <ShowLocation />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+    await userEvent.type(await screen.findByLabelText("Email"), "ana@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "a-long-passphrase");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "System status" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/status?kb=abc&mode=keyword");
   });
 
   it("shows the server's message when the password is wrong", async () => {

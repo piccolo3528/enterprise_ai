@@ -35,6 +35,12 @@ def test_warm_up_runs_and_a_failure_does_not_block_startup(settings, monkeypatch
         return FakeEmbedder()
 
     monkeypatch.setattr(factory, "get_embedder", get_embedder)
+
+    class FakeLLM:  # building the real SDK client takes ~5-6 s (no network, but slow)
+        def sdk(self):
+            calls.append("llm")
+
+    monkeypatch.setattr(factory, "build_llm", lambda settings: FakeLLM())
     caplog.set_level("INFO")
 
     # Qdrant points at 127.0.0.1:6999 where nothing listens, so its warm-up fails.
@@ -43,7 +49,8 @@ def test_warm_up_runs_and_a_failure_does_not_block_startup(settings, monkeypatch
         assert wait_for(lambda: "Database pool warmed up" in caplog.text)
         assert wait_for(lambda: "Embedding model warmed up" in caplog.text)
         # Recovery runs after the database warm-up; the model and tokenizer load alongside.
-        assert wait_for(lambda: {"db", "recover", "tokenizer", "embedder"} <= set(calls))
+        assert wait_for(lambda: {"db", "recover", "tokenizer", "embedder", "llm"} <= set(calls))
+        assert wait_for(lambda: "Gemini client warmed up" in caplog.text)
         assert calls.index("db") < calls.index("recover")
         # The app still serves requests.
         assert client.get("/api/does-not-exist").status_code == 404

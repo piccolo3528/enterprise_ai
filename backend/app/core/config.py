@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     gemini_model_answer: str = "gemini-3.5-flash-lite"
     gemini_model_utility: str = "gemini-3.5-flash-lite"
     gemini_rpm_limit: int = Field(default=10, ge=1)
+    # Generation (M12). Low temperature: factual Q&A favours repeatable answers (§4.6).
+    llm_temperature: float = Field(default=0.1, ge=0, le=2)
+    llm_max_output_tokens: int = Field(default=1024, ge=64, le=8192)
+    llm_timeout_seconds: float = Field(default=25, gt=0, le=120)  # per attempt
+    llm_max_retries: int = Field(default=2, ge=0, le=5)  # on 429 (per-minute), 5xx, timeouts
     groq_api_key: SecretStr | None = None  # optional fallback provider (D22), not wired in
     groq_model: str | None = None
 
@@ -89,6 +94,9 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=20, ge=1)
     rerank_top_n: int = Field(default=5, ge=1)
     context_token_budget: int = Field(default=5000, ge=500)
+    # Passages given to the LLM (M12): hybrid Hit@10 100 % vs Hit@5 96 %, Recall@10 90 % vs
+    # 83 %, for ~2.7k tokens (M11 baseline). The token budget above still caps the total.
+    context_max_sources: int = Field(default=10, ge=1, le=50)
 
     # ------------------------------------------------------------------------- validators
     # Error messages describe the problem without echoing the value (it may hold a password).
