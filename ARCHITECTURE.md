@@ -1,7 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M12 (2026-11-19).** Parts labelled
-> "implemented in M2" … "M12" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M13 (2026-11-20).** Parts labelled
+> "implemented in M2" … "M13" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
@@ -79,7 +79,7 @@ what*, the filesystem keeps the *originals*, and Gemini *writes* the answer.**
 | Dashboard *(built in M6)* | Totals of KBs, documents and conversations, and the 5 most recently changed KBs. All from the one KB-list request, which already carries per-KB counts. |
 | Knowledge bases *(built in M6)* | List (cards with counts), create, rename/describe, delete with confirmation; a detail page per KB (`/knowledge-bases/:id`) that M7 extends with documents. Dialogs are an accessible `Modal` (focus moves in, Tab stays inside, Escape closes, focus returns), never `window.confirm`. |
 | KB detail / documents | Drag-and-drop upload with progress, a document table with live processing status, delete. |
-| Chat *(built in M12, without streaming)* | One question at a time about a selected KB (`?kb=`), answers in Markdown (never raw HTML) with citation chips that open a side panel (document, version, section, superseded/suspicious badges, the passage), a not-found style, notices, errors with Retry. Streaming and the conversation list are M13. |
+| Chat *(built in M12; streaming and conversations in M13)* | Conversations with a selected KB (`?kb=&c=`): answers stream in with stage messages ("Searching your documents…"), Markdown (never raw HTML) with citation numbers that become chips once the sources arrive, a side panel (document, version, section, superseded/suspicious badges, the passage), a not-found style, notices, errors with Retry, a Stop button that keeps what was shown, "Searched for: …" under rewritten follow-ups, and a sidebar to start, open, rename and delete conversations. |
 | Search | Semantic, keyword or hybrid search across a KB (optionally one document), showing matching passages without calling the LLM. *Built in M10.* |
 | Settings | Account (name, password), retrieval defaults. |
 | System status *(built in M3)* | Live service health from `/api/health`: loading, healthy, degraded (which service, why) and backend-unreachable states. |
@@ -214,8 +214,14 @@ flowchart TD
 ```
 
 **As built in M12:** question → hybrid retrieval (10 passages) → the DB connection is released →
-context → one Gemini call → `NOT_FOUND` check → citation validation → notices. History, rewriting,
-reranking and streaming are still to come (M13/M14), and answers aren't persisted yet.
+context → one Gemini call → `NOT_FOUND` check → citation validation → notices.
+
+**Added in M13** (`rag.stream_answer`): a follow-up first loads the last 6 turns, trims them to
+1,500 tokens and asks the utility model (JSON mode) for a standalone question, which is then both
+searched and answered; the first question of a conversation skips this. The answer streams
+(§3.3) and the turn is saved at the end. History never enters the answer prompt (D69): the answer
+is grounded in the sources alone, and earlier answers' `[n]` can't be mistaken for this answer's
+sources. Reranking and multi-query are M14.
 
 **Why the LLM decides "not found" (D62).** The design had a score gate before the LLM. Measured on
 57 labelled questions, no score separates the 7 unanswerable ones: the best cosine threshold is
@@ -227,20 +233,46 @@ Result: 7 of 7 unanswerable questions refused, 0–1 of 50 answerable ones refus
 and 1 answer). An unanswerable question now costs 1 call; only "retrieval found nothing" costs 0.
 This matters because free-tier quotas are counted per project per day.
 
-### 3.3 Streaming protocol (Server-Sent Events, M13)
+### 3.3 Streaming protocol (Server-Sent Events, built in M13)
 
-`POST /api/conversations/{id}/messages` returns `text/event-stream` with these events:
+`POST /api/knowledge-bases/{kb_id}/conversations` (a first question; creates the conversation) and
+`POST /api/conversations/{id}/messages` (a follow-up) return `text/event-stream`. Each event is
+`event: <name>` + one `data: <JSON>` line:
 
 | event | data |
 |---|---|
-| `status` | `{"stage": "retrieving" \| "reranking" \| "generating"}` |
-| `token` | `{"text": "..."}` (repeated) |
-| `citations` | `[{"n":1,"document_id":..,"filename":..,"page_start":..,"page_end":..,"snippet":..}]` |
-| `done` | `{"message_id":..,"latency_ms":{...}}` |
-| `error` | `{"code":"rate_limited" \| "llm_unavailable" \| ...,"message":"..."}` |
+| `conversation` | `{"id", "title"}`: first question only, sent first, so the page can name it in the URL |
+| `status` | `{"stage": "rewriting"}`, `{"stage": "retrieving", "query": <standalone question or null>}`, `{"stage": "generating"}` |
+| `token` | `{"text": "..."}` (repeated): already checked, see below |
+| `citations` | `[{number, chunk_id, document_id, filename, doc_code, doc_version, doc_status, doc_title, section, page_start, page_end, text, flagged}]` |
+| `done` | `{message_id, conversation_id, answer, not_found, notices, model, prompt_tokens, output_tokens, sources_given, invalid_citations, prompt_version, rewritten_query, citation_count, timings_ms}` |
+| `error` | `{"code": "rate_limited" \| "quota_exhausted" \| "llm_unavailable" \| "answer_blocked" \| "not_found" \| "internal_error", "message", "retry_after"?}`, instead of `citations`/`done` |
 
-Citations are sent **after** the text stream because they can only be validated once the full
-answer exists.
+Everything that can be checked before the answer starts (session, input, ownership, LLM
+configured) is an ordinary JSON error with its HTTP status; the stream starts with 200 only after.
+
+**Streamed text is final text (D68).** Two things are only certain once the whole answer exists:
+whether it is the `NOT_FOUND` reply, and which citation numbers are valid and what they become
+after renumbering. `services/answer_stream.py` decides both *while* streaming: `NotFoundGate`
+holds back the first characters while they could still be `NOT_FOUND` ("N", "**NOT_"), and
+`CitationStream` applies the batch citation rules piece by piece, holding back only an unclosed
+`[2, ` (or a `[6.1]` whose next character decides whether it's a link) and trailing whitespace.
+Tested equal to the batch rules on every 3-way split of 10 tricky answers, so a number shown
+never changes. The cited passages themselves come in `citations`, after the text.
+
+**How it runs.** The pipeline is a synchronous generator (SQLAlchemy and the Gemini SDK are
+synchronous); an async wrapper runs each `next()` in a worker thread and forwards the event. The
+middleware is plain ASGI, so nothing buffers. Gemini is retried only until its first chunk: the
+SDK sends the request when the stream is first read, and once text has been shown a retry would
+repeat or contradict it, so a later failure is an `error` event.
+
+**Stop and disconnects.** The browser aborts the request; Starlette notices the disconnect and
+cancels the response; the wrapper closes the pipeline in a shielded scope; `GeneratorExit` inside
+it closes the Gemini stream and saves the text that was sent as an answer with outcome `stopped`.
+Verified by dropping connections directly and through the Vite proxy (4/4).
+
+**The browser** reads the stream with `fetch` (EventSource can only GET) and a small SSE parser;
+it gives up after 120 s without any event (not a total timeout, so long answers are fine).
 
 ---
 
@@ -412,7 +444,11 @@ always answering), so M12's "not found" gate won't be a cosine threshold.
   front matter ("NX-HR-002 v3.0 · Annual Leave…") with its status and section.
 - Still planned (M14): deduplicate overlapping chunks → merge adjacent chunks from the same
   document → optional extractive compression → fill the budget in rerank order.
-- History is budgeted separately: the last *N* turns, trimmed oldest first.
+- History is budgeted separately *(built in M13, `services/history.py`)*: the last
+  `HISTORY_MAX_TURNS` (6) question/answer pairs, earlier answers without their `[n]` markers,
+  taken newest first while they fit `HISTORY_TOKEN_BUDGET` (1,500 tokens), oldest dropped first;
+  if even the newest message is too long, its beginning is kept. It goes only to the follow-up
+  rewriter (D69).
 
 ### 4.6 Prompting, grounding and prompt-injection defence
 
@@ -477,6 +513,16 @@ isn't deterministic: one question was answered in one run and refused in the nex
     use, which the startup warm-up triggers in the background.
   - The database connection is released before the call (D65), so a slow answer never holds a
     pooled connection.
+  - *(M13)* **Streaming:** `stream()` yields text pieces then the final result (finish reason,
+    usage, `first_token`); retries cover only the opening of the stream; the SDK stream is closed
+    when the reader leaves. **JSON mode** for the follow-up rewrite: `response_mime_type` +
+    `response_json_schema`, the utility model, 256 output tokens; the reply is still validated
+    by hand, and an unusable reply or an LLM error means "search the question as written" (with
+    a notice), except quota/configuration errors, which end the answer. The SDK's automatic
+    function calling is switched off (we pass no tools; it also logged on every call).
+  - Observed 2026-11-19/20: Gemini answered 503 "This model is currently experiencing high
+    demand" often, at the start and in the middle of streams; time to first token 3–13 s instead
+    of ~1.5 s. The retries and the rewrite fallback kept most questions answered (L62).
 - **Privacy caveat:** on the free tier, Google states that submitted content may be used to
   improve its products. Users must not upload confidential documents while the free tier is used.
   The README and the UI will both say so. The `llm` service sits behind a small interface, so a
@@ -886,8 +932,11 @@ erDiagram
         uuid conversation_id FK
         string role "user|assistant"
         text content
-        text rewritten_query
-        jsonb citations
+        text rewritten_query "questions: what was searched (M13)"
+        jsonb citations "snapshot of the cited passages"
+        jsonb notices "M13"
+        string outcome "answered|not_found|stopped (M13)"
+        string prompt_version "M13"
         jsonb latency_ms "per stage"
         string model
         int prompt_tokens
@@ -895,6 +944,13 @@ erDiagram
         timestamptz created_at
     }
 ```
+
+**Conversations in M13** (migration `0927000418b6` added `outcome`, `notices`, `prompt_version`):
+a conversation row is created with its first answered question, and each question + answer is
+saved in one transaction when the answer ends (D70), so there are no empty conversations and no
+unanswered questions. Messages are stamped with `clock_timestamp()` and read in order with the
+question first on a tie (D71). Citations are saved as snapshots of what was shown, so a
+conversation stays readable after its documents are reprocessed or deleted.
 
 Migrations are managed with **Alembic** through Neon's direct (non-pooled) endpoint
 (`DATABASE_MIGRATION_URL`). UUID primary keys mean IDs can't be guessed or enumerated, and chunk
@@ -964,7 +1020,7 @@ enterprise-ai/
 │   │   ├── schemas/            # Pydantic request/response models
 │   │   ├── api/
 │   │   │   ├── deps.py         # get_db, get_current_user, get_owned_kb
-│   │   │   └── routes/         # auth, knowledge_bases, documents, search, answers (M12), conversations, health
+│   │   │   └── routes/         # auth, knowledge_bases, documents, search, answers (M12), conversations (M13, SSE), health
 │   │   └── services/
 │   │       ├── storage.py
 │   │       ├── ingestion/      # extractors, cleaning, chunking, pipeline
@@ -976,9 +1032,11 @@ enterprise-ai/
 │   │       ├── query_processing.py
 │   │       ├── context_builder.py
 │   │       ├── citations.py    # validate + renumber [n] citations (M12)
-│   │       ├── llm/            # base.py, gemini.py, prompts.py, rate_limiter.py (M12)
-│   │       ├── rag.py
-│   │       └── conversation.py
+│   │       ├── answer_stream.py # NOT_FOUND gate + citations checked while streaming (M13)
+│   │       ├── llm/            # base.py, gemini.py, prompts.py (+ rewrite), rate_limiter.py (M12)
+│   │       ├── rag.py          # answer_question (M12) + stream_answer (M13)
+│   │       ├── history.py      # token-budgeted history for the rewriter (M13)
+│   │       └── conversations.py # list/read/rename/delete, save a turn (M13)
 │   ├── scripts/
 │   │   ├── verify_setup.py     # checks Neon (incl. full-text search), Qdrant, Gemini, models
 │   │   ├── download_models.py  # pre-downloads the embedding + reranker models
@@ -1011,15 +1069,16 @@ enterprise-ai/
         ├── main.jsx
         ├── App.jsx             # routes
         ├── index.css           # Tailwind
-        ├── api/                # client.js (axios + ApiError), health.js, … + streamChat.js
+        ├── api/                # client.js (axios + ApiError), health.js, …, conversations.js (fetch + SSE, M13)
         ├── test/setup.js       # jest-dom matchers, cleanup between tests
         ├── context/            # AuthContext
-        ├── hooks/              # useDocumentsPolling, useChatStream, …
+        ├── hooks/              # useDocuments, useKnowledgeBases, useConversations (M13)
+        ├── utils/              # format.js, sse.js (SSE parser, M13)
         ├── components/
         │   ├── layout/         # AppLayout, Sidebar, Topbar, navigation.js, ProtectedRoute
         │   ├── ui/             # Button, Input, Spinner, EmptyState, ErrorBanner, StatusBadge, Modal, Toast
         │   ├── documents/      # UploadDropzone, DocumentTable, StatusBadge
-        │   ├── chat/           # AnswerText (M12); MessageList, MessageInput, ConversationList (M13)
+        │   ├── chat/           # AnswerText (M12); ChatTurn, ConversationList, DeleteConversationModal (M13)
         │   └── citations/      # CitationPanel (M12)
         └── pages/              # SystemStatus, NotFound (M3); Login, Register, Dashboard,
                                 # KnowledgeBases, KnowledgeBaseDetail, Chat, Search, Settings
@@ -1070,7 +1129,7 @@ The full annotated template is [`backend/.env.example`](backend/.env.example). C
 | Models | `EMBEDDING_MODEL`, `RERANKER_MODEL` |
 | Auth | `JWT_SECRET`, `JWT_EXPIRE_MINUTES` |
 | Uploads | `UPLOAD_DIR`, `MAX_UPLOAD_MB` |
-| RAG tuning | `CHUNK_SIZE_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `RETRIEVAL_TOP_K`, `RERANK_TOP_N`, `CONTEXT_TOKEN_BUDGET`, `CONTEXT_MAX_SOURCES` (M12) |
+| RAG tuning | `CHUNK_SIZE_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `RETRIEVAL_TOP_K`, `RERANK_TOP_N`, `CONTEXT_TOKEN_BUDGET`, `CONTEXT_MAX_SOURCES` (M12), `HISTORY_MAX_TURNS`, `HISTORY_TOKEN_BUDGET` (M13) |
 
 Secrets hygiene: `.env` is git-ignored. The config loader never logs secret values; it logs only
 whether each one is set. The frontend has **no secrets** and no `.env`. Its only setting is the

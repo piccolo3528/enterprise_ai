@@ -116,6 +116,17 @@ def get_document_id(document_id: str) -> uuid.UUID:
 DocumentId = Annotated[uuid.UUID, Depends(get_document_id)]
 
 
+def get_conversation_id(conversation_id: str) -> uuid.UUID:
+    """The `{conversation_id}` path parameter; malformed -> 404, like a missing one."""
+    try:
+        return uuid.UUID(conversation_id)
+    except ValueError:
+        raise NotFoundError("Conversation not found.") from None
+
+
+ConversationId = Annotated[uuid.UUID, Depends(get_conversation_id)]
+
+
 def get_storage(settings: SettingsDep) -> Storage:
     return Storage(settings.upload_dir)
 
@@ -123,6 +134,12 @@ def get_storage(settings: SettingsDep) -> Storage:
 def get_session_factory(request: Request) -> SessionFactory:
     """For background jobs: they outlive the request, so they open their own sessions."""
     return request.app.state.session_factory
+
+
+def get_read_session_factory(request: Request) -> SessionFactory:
+    """Autocommit sessions (D27) for work that outlives the request's own dependencies, such as
+    the retrieval step of a streamed answer."""
+    return request.app.state.read_session_factory
 
 
 def get_vector_store(request: Request) -> VectorStore:
@@ -142,4 +159,5 @@ def get_llm(request: Request) -> LLMProvider:
 StorageDep = Annotated[Storage, Depends(get_storage)]
 LLMDep = Annotated[LLMProvider, Depends(get_llm)]
 SessionFactoryDep = Annotated[SessionFactory, Depends(get_session_factory)]
+ReadSessionFactoryDep = Annotated[SessionFactory, Depends(get_read_session_factory)]
 VectorStoreDep = Annotated[VectorStore, Depends(get_vector_store)]

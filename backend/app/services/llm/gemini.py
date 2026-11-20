@@ -1,6 +1,7 @@
 """Gemini through the `google-genai` SDK, with our own pacing, retries and error mapping (§4.7).
 
-One call = acquire a rate-limiter token -> generate_content -> map the outcome:
+One call = acquire a rate-limiter token -> generate_content (or generate_content_stream) -> map
+the outcome:
 
 | What happened                          | Retry?                    | Error the user sees        |
 |----------------------------------------|---------------------------|----------------------------|
@@ -20,6 +21,10 @@ per-day one, so it would retry a quota that can't recover today, and two retry l
 **Everything fits a deadline** (60 s): a retry starts only if its wait + a full attempt still fit,
 so the request ends before the browser gives up (75 s for answers).
 
+**Streaming (M13)** retries only until the first piece of text arrives: the SDK sends the request
+when the stream is first read, so "open the stream and read one chunk" is the attempt. Once text
+has reached the reader, a failure is reported as it is; retrying would repeat or contradict it.
+
 Neither the prompt nor the answer is ever logged: both contain document text and the question.
 """
 
@@ -31,8 +36,8 @@ import random
 import re
 import threading
 import time
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Iterator
+from typing import Any, TypeVar
 
 from app.core.errors import (
     AnswerBlockedError,
@@ -46,6 +51,8 @@ from app.services.llm.base import LLMResult
 from app.services.llm.rate_limiter import RATE_LIMITED, TokenBucket
 
 logger = logging.getLogger("app.llm")
+
+T = TypeVar("T")
 
 DEADLINE_SECONDS = 60.0  # the whole call, retries included
 LIMITER_MAX_WAIT = 10.0  # longer than this in our own queue -> rate_limited right away
@@ -198,14 +205,25 @@ class GeminiClient:
                 )
             return self._client
 
-    def _config(self, system: str):
+    def _config(
+        self,
+        system: str,
+        *,
+        json_schema: dict[str, Any] | None = None,
+        max_output_tokens: int | None = None,
+    ):
         from google.genai import types
 
         return types.GenerateContentConfig(
             system_instruction=system,
             temperature=self.temperature,
-            max_output_tokens=self.max_output_tokens,
+            max_output_tokens=max_output_tokens or self.max_output_tokens,
             candidate_count=1,
+            # We never pass tools, so the SDK's automatic function calling has nothing to do; off,
+            # it also stops logging "AFC is enabled" on every call.
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            response_mime_type="application/json" if json_schema else None,
+            response_json_schema=json_schema,
         )
 
     def backoff(self, attempt: int) -> float:
@@ -213,7 +231,10 @@ class GeminiClient:
         clients that failed together, so they don't all retry in the same instant."""
         return self._jitter() * min(BACKOFF_CAP, BACKOFF_BASE * 2 ** (attempt - 1))
 
-    def generate(self, *, system: str, prompt: str) -> LLMResult:
+    def _with_retries(self, call: Callable[[], T]) -> tuple[T, int, float, float]:
+        """Run `call` paced by the limiter and retried per the table above, within the deadline.
+        Returns (its result, attempts, seconds waited for the limiter, start of the attempt that
+        succeeded)."""
         started = self._clock()
         waited = 0.0
         attempt = 0
@@ -223,10 +244,7 @@ class GeminiClient:
             waited += self._limiter.acquire(max_wait=min(LIMITER_MAX_WAIT, max(0.0, remaining)))
             t = self._clock()
             try:
-                response = self.sdk().models.generate_content(
-                    model=self.model, contents=prompt, config=self._config(system)
-                )
-                break
+                return call(), attempt, waited, t
             except Exception as exc:  # noqa: BLE001 - classify() re-raises what it doesn't know
                 error, retryable, server_delay = classify(exc)
                 status = getattr(exc, "code", None) or type(exc).__name__
@@ -247,12 +265,91 @@ class GeminiClient:
                     "Gemini attempt %d failed (%s); retrying in %.1f s", attempt, status, delay
                 )
                 self._sleep(delay)
-        generate_ms = round((self._clock() - t) * 1000, 1)
-        return self._to_result(
-            response, attempt, {"rate_limit_wait": round(waited * 1000, 1), "generate": generate_ms}
+
+    def _ms_since(self, t: float) -> float:
+        return round((self._clock() - t) * 1000, 1)
+
+    def generate(
+        self,
+        *,
+        system: str,
+        prompt: str,
+        model: str | None = None,
+        json_schema: dict[str, Any] | None = None,
+        max_output_tokens: int | None = None,
+    ) -> LLMResult:
+        name = model or self.model
+        config = self._config(system, json_schema=json_schema, max_output_tokens=max_output_tokens)
+        response, attempts, waited, t = self._with_retries(
+            lambda: self.sdk().models.generate_content(model=name, contents=prompt, config=config)
+        )
+        timings = {"rate_limit_wait": round(waited * 1000, 1), "generate": self._ms_since(t)}
+        return self._to_result(response, attempts, timings, name)
+
+    def stream(self, *, system: str, prompt: str) -> Iterator[str | LLMResult]:
+        config = self._config(system)
+
+        def open_stream():
+            chunks = self.sdk().models.generate_content_stream(
+                model=self.model, contents=prompt, config=config
+            )
+            return chunks, next(chunks, None)  # the request is sent here
+
+        (chunks, chunk), attempts, waited, t = self._with_retries(open_stream)
+        parts: list[str] = []
+        reason_name = ""
+        usage = None
+        model_version = None
+        first_token = None
+        try:
+            while chunk is not None:
+                feedback = getattr(chunk, "prompt_feedback", None)
+                if feedback is not None and getattr(feedback, "block_reason", None):
+                    raise AnswerBlockedError(BLOCKED)
+                candidates = getattr(chunk, "candidates", None) or []
+                if candidates and candidates[0].finish_reason:
+                    reason = candidates[0].finish_reason
+                    reason_name = getattr(reason, "name", str(reason))
+                    if reason_name in _BLOCKED_FINISH:
+                        raise AnswerBlockedError(BLOCKED)
+                usage = getattr(chunk, "usage_metadata", None) or usage
+                model_version = getattr(chunk, "model_version", None) or model_version
+                text = chunk.text if candidates else None
+                if text:
+                    if first_token is None:
+                        first_token = self._ms_since(t)
+                    parts.append(text)
+                    yield text
+                try:
+                    chunk = next(chunks, None)
+                except Exception as exc:  # noqa: BLE001 - classify() re-raises what it doesn't know
+                    error, _, _ = classify(exc)
+                    status = getattr(exc, "code", None) or type(exc).__name__
+                    logger.warning("Gemini stream failed mid-answer (%s)", status)
+                    raise error from None
+        finally:
+            chunks.close()  # also when the reader stops early: ends the HTTP response
+        text = "".join(parts).strip()
+        if not text:
+            raise LLMUnavailableError(EMPTY)
+        timings = {
+            "rate_limit_wait": round(waited * 1000, 1),
+            "first_token": first_token or 0.0,
+            "generate": self._ms_since(t),
+        }
+        yield LLMResult(
+            text=text,
+            model=model_version or self.model,
+            finish_reason="max_tokens" if reason_name == "MAX_TOKENS" else "stop",
+            prompt_tokens=getattr(usage, "prompt_token_count", None),
+            output_tokens=getattr(usage, "candidates_token_count", None),
+            attempts=attempts,
+            timings_ms=timings,
         )
 
-    def _to_result(self, response: Any, attempts: int, timings: dict[str, float]) -> LLMResult:
+    def _to_result(
+        self, response: Any, attempts: int, timings: dict[str, float], model: str
+    ) -> LLMResult:
         feedback = getattr(response, "prompt_feedback", None)
         if feedback is not None and getattr(feedback, "block_reason", None):
             raise AnswerBlockedError(BLOCKED)
@@ -269,7 +366,7 @@ class GeminiClient:
         usage = getattr(response, "usage_metadata", None)
         return LLMResult(
             text=text,
-            model=getattr(response, "model_version", None) or self.model,
+            model=getattr(response, "model_version", None) or model,
             finish_reason="max_tokens" if reason_name == "MAX_TOKENS" else "stop",
             prompt_tokens=getattr(usage, "prompt_token_count", None),
             output_tokens=getattr(usage, "candidates_token_count", None),

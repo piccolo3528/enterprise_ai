@@ -48,26 +48,35 @@ def _expand(token: str) -> list[int]:
     return list(range(low, high + 1))
 
 
-def resolve_citations(answer: str, source_count: int) -> ResolvedCitations:
-    new_number: dict[int, int] = {}
-    invalid = 0
+class CitationResolver:
+    """The rules above, applied to an answer in one go or piece by piece (streaming): the
+    renumbering is shared across pieces, so [7] stays [1] wherever it appears later."""
 
-    def replace(match: re.Match[str]) -> str:
-        nonlocal invalid
+    def __init__(self, source_count: int) -> None:
+        self.source_count = source_count
+        self.new_number: dict[int, int] = {}  # original source number -> new number
+        self.invalid = 0
+
+    @property
+    def order(self) -> list[int]:
+        return list(self.new_number)
+
+    def _replace(self, match: re.Match[str]) -> str:
         markers: list[str] = []
         for token in match.group(2).split(","):
             for n in _expand(token):
-                if 1 <= n <= source_count:
-                    new = new_number.setdefault(n, len(new_number) + 1)
+                if 1 <= n <= self.source_count:
+                    new = self.new_number.setdefault(n, len(self.new_number) + 1)
                     if f"[{new}]" not in markers:
                         markers.append(f"[{new}]")
                 else:
-                    invalid += 1
+                    self.invalid += 1
         if not markers:
             return ""
         return match.group(1) + "".join(markers)
 
-    def section_ref(match: re.Match[str]) -> str:
+    @staticmethod
+    def _section_ref(match: re.Match[str]) -> str:
         items = [item.strip() for item in match.group(1).split(",")]
         sections = [item for item in items if "." in item]
         if not sections:
@@ -76,5 +85,11 @@ def resolve_citations(answer: str, source_count: int) -> ResolvedCitations:
         return "(" + ", ".join(f"§{s}" for s in sections) + ")" + (
             f"[{', '.join(numbers)}]" if numbers else "")
 
-    text = _CITATION.sub(replace, _SECTION_REF.sub(section_ref, answer))
-    return ResolvedCitations(text=text, order=list(new_number), invalid=invalid)
+    def apply(self, text: str) -> str:
+        return _CITATION.sub(self._replace, _SECTION_REF.sub(self._section_ref, text))
+
+
+def resolve_citations(answer: str, source_count: int) -> ResolvedCitations:
+    resolver = CitationResolver(source_count)
+    text = resolver.apply(answer)
+    return ResolvedCitations(text=text, order=resolver.order, invalid=resolver.invalid)

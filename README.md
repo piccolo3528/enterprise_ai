@@ -4,14 +4,15 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M12 done: backend and frontend skeletons, the database schema on Neon
+> **Project status: M0–M13 done: backend and frontend skeletons, the database schema on Neon
 > (Singapore), accounts, private knowledge bases with a dashboard, document upload with
 > background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector,
 > local embeddings stored in Qdrant (with safe deletes and a rebuild script), semantic,
 > keyword and hybrid search, a retrieval evaluation over 57 labelled questions
 > (hybrid: 96 % of answers in the top 5), and grounded answers from Gemini with validated
-> citations on a Chat page (7 of 7 unanswerable questions refused, 0 invalid citations).
-> Next: streaming and conversation memory (M13).**
+> citations (7 of 7 unanswerable questions refused, 0 invalid citations), streamed into saved
+> conversations where follow-up questions ("Can they be carried forward?") are understood.
+> Next: advanced RAG (M14).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -361,20 +362,27 @@ frontend.
   passages, with numbered citations: click a number to read the passage, its document, version
   and section in the side panel. Older versions are marked **superseded**, and passages that look
   like instructions to an AI are marked **Suspicious text**. If the documents don't answer, you get
-  *"I couldn't find the answer…"* instead of a guess. Each question is answered on its own and
-  isn't saved yet (conversations come in M13). Answers take ~2–3 s; the first question after the
-  server starts can take longer while the embedding model loads. Gemini settings are in
-  `backend/.env` (`LLM_TEMPERATURE`, `LLM_MAX_OUTPUT_TOKENS`, `LLM_TIMEOUT_SECONDS`,
-  `LLM_MAX_RETRIES`, `CONTEXT_MAX_SOURCES`); without `GEMINI_API_KEY` the page explains that
-  answering isn't configured.
+  *"I couldn't find the answer…"* instead of a guess. The answer appears as it is written;
+  **Stop** ends it and keeps the part shown. Every answered question is saved: the list on the
+  left holds your conversations with that knowledge base (**New chat**, rename with the pencil,
+  delete with the bin). Follow-up questions can refer to earlier ones (*"Can they be carried
+  forward?"*): they are rewritten into a full question first, shown as *Searched for: …* (one
+  extra Gemini call; if it fails, the question is searched as written and a note says so).
+  Answers took ~2–3 s in M12; when Gemini is busy (it often answered 503 "high demand" during
+  M13's checks) they can take 10–40 s or fail with *"The AI service isn't responding"*: use
+  **Retry**. The first question after the server starts can take longer while the embedding model
+  loads. Settings in `backend/.env`: `LLM_TEMPERATURE`, `LLM_MAX_OUTPUT_TOKENS`,
+  `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `CONTEXT_MAX_SOURCES`, `HISTORY_MAX_TURNS`,
+  `HISTORY_TOKEN_BUDGET`; without `GEMINI_API_KEY` the page explains that answering isn't
+  configured.
 
-### 13. Run the tests *(verified; M12: 309 unit + 98 live backend (+3 real-Gemini), 88 frontend)*
+### 13. Run the tests *(verified; M13: 369 unit + 106 live backend (+4 real-Gemini), 102 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)
 pytest                      # unit tests: no network, don't read backend/.env
 pytest -m live              # live tests against the real Neon + Qdrant in backend/.env
-pytest -m gemini            # 3 real Gemini calls (opt-in: uses your free quota)
+pytest -m gemini            # 6 real Gemini calls (opt-in: uses your free quota)
 ruff check app tests        # code-quality checks
 ruff format --check app tests
 
@@ -415,6 +423,9 @@ make that first request a little slower.
 ## Known limitations (summary)
 
 - Gemini's free tier: limited daily requests, and content may be used by Google. Not for confidential data.
+- A follow-up question costs two Gemini calls (rewrite + answer). The answer model sees only the
+  sources, never the conversation, so questions *about* the conversation ("what did I ask
+  first?") aren't answered from it.
 - Neon's free plan: 1 GB storage, 100 compute-hours a month, and the database sleeps after 5 idle minutes.
 - Qdrant Cloud's free cluster is suspended after 1 week unused and deleted after 4 weeks (vectors can be rebuilt from PostgreSQL).
 - Scanned PDFs (images without a text layer) aren't supported, because there is no OCR.

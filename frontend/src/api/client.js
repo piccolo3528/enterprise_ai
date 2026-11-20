@@ -94,6 +94,11 @@ export function setUnauthorizedHandler(handler) {
   onUnauthorized = handler;
 }
 
+/** For requests made with fetch() instead of Axios (streamed answers): same 401 handling. */
+export function reportUnauthorized(error) {
+  onUnauthorized?.(error);
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {

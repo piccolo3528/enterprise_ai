@@ -39,6 +39,15 @@ export default function AnswerText({ text, citations, selected, onCite }) {
         const n = Number(match[1]);
         return <CitationChip number={n} active={selected === n} onClick={() => onCite(n)} />;
       }
+      if (match) {
+        // While the answer streams, its sources arrive only at the end (§3.3): show the number,
+        // not yet clickable.
+        return (
+          <span className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-slate-100 px-1 align-text-top text-xs font-semibold text-slate-500 ring-1 ring-slate-200 ring-inset">
+            {match[1]}
+          </span>
+        );
+      }
       return (
         <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">
           {children}

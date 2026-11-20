@@ -1,6 +1,7 @@
 """Grounded answers with citations from one knowledge base (M12; non-streamed, not saved).
 
-Conversations, history and streaming come in M13 (POST /api/conversations/{id}/messages).
+The chat uses the streamed, saved version (routes/conversations.py, M13). This one stays for
+scripts and evaluations: one question, one JSON response.
 """
 
 from __future__ import annotations
@@ -16,28 +17,7 @@ router = APIRouter(tags=["answers"])
 
 
 def _citation(c: rag.Citation) -> CitationOut:
-    p = c.result.passage
-    meta = p.doc_metadata or {}
-
-    def text_or_none(key: str) -> str | None:
-        value = meta.get(key)
-        return str(value) if value is not None else None
-
-    return CitationOut(
-        number=c.number,
-        chunk_id=p.chunk_id,
-        document_id=p.document_id,
-        filename=p.filename,
-        doc_code=text_or_none("document_id"),
-        doc_version=text_or_none("version"),
-        doc_status=text_or_none("status"),
-        doc_title=text_or_none("title"),
-        section=p.section,
-        page_start=p.page_start,
-        page_end=p.page_end,
-        text=p.text,
-        flagged=c.flagged,
-    )
+    return CitationOut.model_validate(c.snapshot())
 
 
 @router.post("/knowledge-bases/{kb_id}/ask", response_model=AskResponse)

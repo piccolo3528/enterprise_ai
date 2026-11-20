@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     # Passages given to the LLM (M12): hybrid Hit@10 100 % vs Hit@5 96 %, Recall@10 90 % vs
     # 83 %, for ~2.7k tokens (M11 baseline). The token budget above still caps the total.
     context_max_sources: int = Field(default=10, ge=1, le=50)
+    # Conversation memory (M13): the most recent turns (question + answer) given to the
+    # follow-up rewriter, trimmed oldest first to the token budget. History never goes into the
+    # answer prompt (D69).
+    history_max_turns: int = Field(default=6, ge=1, le=50)
+    history_token_budget: int = Field(default=1500, ge=100)
 
     # ------------------------------------------------------------------------- validators
     # Error messages describe the problem without echoing the value (it may hold a password).

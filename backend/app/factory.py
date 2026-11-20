@@ -16,7 +16,15 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI
 
-from app.api.routes import answers, auth, documents, health, knowledge_bases, search
+from app.api.routes import (
+    answers,
+    auth,
+    conversations,
+    documents,
+    health,
+    knowledge_bases,
+    search,
+)
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
@@ -125,4 +133,5 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
     app.include_router(documents.router, prefix="/api")
     app.include_router(search.router, prefix="/api")
     app.include_router(answers.router, prefix="/api")
+    app.include_router(conversations.router, prefix="/api")
     return app

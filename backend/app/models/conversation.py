@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 MESSAGE_ROLES = ("user", "assistant")
+# Assistant messages only (NULL for questions): an answer, the "not found" reply, or the part of
+# an answer the user saw before pressing Stop.
+MESSAGE_OUTCOMES = ("answered", "not_found", "stopped")
 
 
 class Conversation(UUIDPrimaryKey, Timestamps, Base):
@@ -39,7 +42,9 @@ class Message(UUIDPrimaryKey, CreatedAt, Base):
     __tablename__ = "messages"
     __table_args__ = (
         CheckConstraint(allowed_values("role", MESSAGE_ROLES), name="role"),
-        # History is always read in order for one conversation.
+        CheckConstraint(allowed_values("outcome", MESSAGE_OUTCOMES), name="outcome"),
+        # History is always read in order for one conversation: by created_at (set to
+        # clock_timestamp() when saved), question first on a tie (services/conversations.py).
         Index("ix_messages_conversation_id_created_at", "conversation_id", "created_at"),
     )
 
@@ -48,8 +53,14 @@ class Message(UUIDPrimaryKey, CreatedAt, Base):
     )
     role: Mapped[str] = mapped_column(String(10))
     content: Mapped[str] = mapped_column(Text)
-    rewritten_query: Mapped[str | None] = mapped_column(Text)  # standalone version (M13)
+    # On a follow-up question: the standalone version that was searched (M13).
+    rewritten_query: Mapped[str | None] = mapped_column(Text)
+    # A snapshot of each cited passage as shown (document, version, section, text): the
+    # conversation stays readable after the document is reprocessed or deleted.
     citations: Mapped[list[Any]] = mapped_column(server_default=text("'[]'::jsonb"))
+    notices: Mapped[list[Any]] = mapped_column(server_default=text("'[]'::jsonb"))
+    outcome: Mapped[str | None] = mapped_column(String(20))
+    prompt_version: Mapped[str | None] = mapped_column(String(30))
     latency_ms: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
     model: Mapped[str | None] = mapped_column(String(100))
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
