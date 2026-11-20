@@ -13,6 +13,8 @@ QUESTION_MAX = 1000
 
 class AskRequest(BaseModel):
     question: str = Field(max_length=QUESTION_MAX * 4)  # raw limit; the exact one is below
+    # Answer from this document of the knowledge base only (M14); 404 if it isn't in the KB.
+    document_id: uuid.UUID | None = None
 
     @field_validator("question")
     @classmethod

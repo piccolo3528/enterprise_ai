@@ -25,6 +25,7 @@ export function useDocuments(kbId) {
   const reload = useCallback(async () => {
     clearTimeout(timerRef.current);
     controllerRef.current?.abort();
+    if (!kbId) return; // nothing selected yet
     const controller = new AbortController();
     controllerRef.current = controller;
     try {

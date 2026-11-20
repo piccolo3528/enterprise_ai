@@ -36,6 +36,7 @@ from app.services.health import app_version
 from app.services.ingestion.pipeline import recover_interrupted
 from app.services.ingestion.tokens import get_tokens
 from app.services.llm import build_llm
+from app.services.reranker import get_reranker
 from app.services.vector_store import VectorStore, build_qdrant_client
 
 logger = logging.getLogger("app")
@@ -50,7 +51,9 @@ async def _warm_up(name: str, fn: Callable[[], object]) -> None:
         logger.warning("%s warm-up failed (%s); requests will retry", name, type(exc).__name__)
 
 
-async def _warm_up_services(app: FastAPI, embedding_model: str, started_at: datetime) -> None:
+async def _warm_up_services(
+    app: FastAPI, embedding_model: str, started_at: datetime, reranker_model: str | None = None
+) -> None:
     """Open the first Neon connection (~4-5 s), load the tokenizer and the embedding model
     (~25 s: importing PyTorch) concurrently, so none of it lands on a user's first request.
     Once the database is up, documents whose processing a restart interrupted are marked failed
@@ -79,6 +82,8 @@ async def _warm_up_services(app: FastAPI, embedding_model: str, started_at: date
         # ~5 s the first time; loaded now so the first upload doesn't wait for it.
         _warm_up("Tokenizer", lambda: get_tokens(embedding_model)),
     ]
+    if reranker_model:  # only when RERANK_ENABLED (M14): ~2 s after the embedding model
+        tasks.append(_warm_up("Reranker", lambda: get_reranker(reranker_model)))
     sdk = getattr(getattr(app.state, "llm", None), "sdk", None)
     if sdk is not None:  # ~10 s (SDK import + client); no network call, no quota
         tasks.append(_warm_up("Gemini client", sdk))
@@ -105,7 +110,14 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
         # `--reload` restarts stay fast). A request that arrives while the warm-up connection is
         # still busy opens a second connection of its own (~1.35 s): measured, not a bug.
         warm_task = (
-            asyncio.create_task(_warm_up_services(app, settings.embedding_model, started_at))
+            asyncio.create_task(
+                _warm_up_services(
+                    app,
+                    settings.embedding_model,
+                    started_at,
+                    settings.reranker_model if settings.rerank_enabled else None,
+                )
+            )
             if warm_up
             else None
         )

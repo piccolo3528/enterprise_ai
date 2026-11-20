@@ -1,6 +1,7 @@
-import { BrainCircuit, X } from "lucide-react";
+import { X } from "lucide-react";
 import { NavLink } from "react-router";
 
+import BrandMark from "../ui/BrandMark";
 import { NAV_ITEMS } from "./navigation";
 
 function NavItem({ item, onNavigate }) {
@@ -36,7 +37,8 @@ function NavItem({ item, onNavigate }) {
 }
 
 /**
- * Always visible on medium screens and up. On phones it slides in over the page when the top
+ * Always visible on medium screens and up, and fixed there: it is as tall as the window and stays
+ * put while the page scrolls (sticky), with its own scrolling if the links ever outgrow it. On phones it slides in over the page when the top
  * bar's menu button is pressed (`open`), with a backdrop that closes it.
  */
 export default function Sidebar({ open, onClose }) {
@@ -50,14 +52,12 @@ export default function Sidebar({ open, onClose }) {
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-slate-900 transition-transform md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col bg-slate-900 transition-transform md:sticky md:top-0 md:h-screen md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex h-16 items-center gap-2.5 px-5">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-indigo-500">
-            <BrainCircuit aria-hidden="true" className="size-5 text-white" />
-          </span>
+          <BrandMark size="md" />
           <span className="text-sm leading-tight font-semibold text-white">
             Knowledge
             <br />
@@ -72,7 +72,7 @@ export default function Sidebar({ open, onClose }) {
             <X className="size-5" />
           </button>
         </div>
-        <nav aria-label="Main" className="flex-1 space-y-1 px-3 py-4">
+        <nav aria-label="Main" className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
           {NAV_ITEMS.map((item) => (
             <NavItem key={item.to} item={item} onNavigate={onClose} />
           ))}

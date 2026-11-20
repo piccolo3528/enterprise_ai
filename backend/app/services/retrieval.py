@@ -111,6 +111,7 @@ class SearchResult:
     keyword_rank: int | None = None
     keyword_score: float | None = None
     keyword_matched: int | None = None
+    rerank_score: float | None = None  # cross-encoder logit, when reranked (M14)
 
 
 @dataclass
@@ -126,7 +127,7 @@ def _ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 1)
 
 
-def _check_scope(
+def check_scope(
     db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID, document_id: uuid.UUID | None
 ) -> None:
     """404 unless the caller owns the KB and (if given) the document is in it. One query."""
@@ -227,7 +228,7 @@ def search(
         # and its pre-ping (D23), plus a new TLS connection if the pooled one had expired:
         # measured in Chrome, ~115 ms warm, 370-520 ms after a few idle minutes.
         t = time.perf_counter()
-        _check_scope(db, owner_id, kb_id, document_id)
+        check_scope(db, owner_id, kb_id, document_id)
         timings["connect_and_scope_check"] = _ms(t)
 
         keyword_hits: list[KeywordHit] = []

@@ -92,7 +92,6 @@ class Settings(BaseSettings):
     # auto = heading-aware when the document has headings (Markdown, DOCX), else recursive.
     chunk_strategy: Literal["auto", "fixed", "overlap", "recursive", "heading"] = "auto"
     retrieval_top_k: int = Field(default=20, ge=1)
-    rerank_top_n: int = Field(default=5, ge=1)
     context_token_budget: int = Field(default=5000, ge=500)
     # Passages given to the LLM (M12): hybrid Hit@10 100 % vs Hit@5 96 %, Recall@10 90 % vs
     # 83 %, for ~2.7k tokens (M11 baseline). The token budget above still caps the total.
@@ -102,6 +101,14 @@ class Settings(BaseSettings):
     # answer prompt (D69).
     history_max_turns: int = Field(default=6, ge=1, le=50)
     history_token_budget: int = Field(default=1500, ge=100)
+    # Retrieval techniques (M14), each measured in evaluation/compare_retrieval.py before its
+    # default was chosen (PROJECT_TRACKER D72-D76).
+    rerank_enabled: bool = False  # cross-encoder over the hybrid pool
+    rerank_pool: int = Field(default=20, ge=1, le=100)  # hybrid results the cross-encoder reads
+    rerank_min_score: float | None = None  # drop passages scored below this (logit)
+    version_mode: Literal["off", "demote", "filter"] = "demote"  # outdated versions (S4)
+    amendments_enabled: bool = False  # fetch amendments with their base document (S4)
+    multi_query_enabled: bool = True  # extra phrasings in the planning call (D75)
 
     # ------------------------------------------------------------------------- validators
     # Error messages describe the problem without echoing the value (it may hold a password).
@@ -147,8 +154,6 @@ class Settings(BaseSettings):
     def _check_rag_numbers(self) -> Settings:
         if self.chunk_overlap_tokens >= self.chunk_size_tokens:
             raise ValueError("CHUNK_OVERLAP_TOKENS must be smaller than CHUNK_SIZE_TOKENS")
-        if self.rerank_top_n > self.retrieval_top_k:
-            raise ValueError("RERANK_TOP_N cannot be larger than RETRIEVAL_TOP_K")
         return self
 
     # ------------------------------------------------------------------------- helpers

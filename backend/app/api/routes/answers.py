@@ -44,6 +44,8 @@ def ask_knowledge_base(
         candidates=settings.retrieval_top_k,
         max_sources=settings.context_max_sources,
         token_budget=settings.context_token_budget,
+        settings=rag.answer_settings(settings),
+        document_id=body.document_id,
     )
     return AskResponse(
         answer=result.answer,

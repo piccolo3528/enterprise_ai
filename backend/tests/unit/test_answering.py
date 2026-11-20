@@ -504,7 +504,7 @@ def pipeline(monkeypatch):
         state["kwargs"] = kwargs
         return state["outcome"]
 
-    monkeypatch.setattr(rag.retrieval, "search", search)
+    monkeypatch.setattr(rag.answer_retrieval.retrieval, "search", search)
 
     def ask(question="How many days of leave?", llm=None):
         llm = llm or FakeLLM(events)

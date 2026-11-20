@@ -35,7 +35,8 @@ const INTERRUPTED = "The answer stopped before it was complete. Please try again
 
 /**
  * Ask a question and receive the answer as Server-Sent Events: a first question starts a new
- * conversation in `kbId`, otherwise it's a follow-up in `conversationId`.
+ * conversation in `kbId`, otherwise it's a follow-up in `conversationId`. With `documentId`, only
+ * that document of the knowledge base is searched.
  *
  * Calls `onEvent(name, data)` for `conversation`, `status`, `token`, `citations` and `done`.
  * Rejects with an ApiError for anything that went wrong, including an `error` event (its code and
@@ -45,7 +46,7 @@ const INTERRUPTED = "The answer stopped before it was complete. Please try again
  * fetch(), not Axios or EventSource: EventSource can only GET, and Axios can't read a response
  * body while it is still arriving in the browser.
  */
-export async function streamAnswer({ kbId, conversationId, question, signal, onEvent }) {
+export async function streamAnswer({ kbId, conversationId, question, documentId, signal, onEvent }) {
   const url = conversationId
     ? `/api/conversations/${enc(conversationId)}/messages`
     : `/api/knowledge-bases/${enc(kbId)}/conversations`;
@@ -83,7 +84,8 @@ export async function streamAnswer({ kbId, conversationId, question, signal, onE
       response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        body: JSON.stringify({ question }),
+        // documentId: answer from that document of the knowledge base only (M14)
+        body: JSON.stringify(documentId ? { question, document_id: documentId } : { question }),
         credentials: "same-origin",
         signal: controller.signal,
       });

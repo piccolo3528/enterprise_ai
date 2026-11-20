@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getHealth } from "../api/health";
 import Button from "../components/ui/Button";
 import ErrorBanner from "../components/ui/ErrorBanner";
-import Spinner from "../components/ui/Spinner";
 import StatusBadge from "../components/ui/StatusBadge";
+import BrandLoader from "../components/ui/BrandLoader";
 
 export function formatLatency(ms) {
   if (ms == null) return "—";
@@ -187,10 +187,7 @@ export default function SystemStatus() {
         {error && <ErrorBanner title="Couldn't load the system status" error={error} onRetry={load} />}
 
         {!report && loading && (
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            <Spinner label="Checking services" />
-            Checking services…
-          </div>
+          <BrandLoader label="Checking services…" />
         )}
 
         {report && <HealthReport report={report} />}

@@ -1,4 +1,5 @@
-"""Smoke tests against the **real Gemini API**: 6 calls per run, so they are opt-in.
+"""Smoke tests against the **real Gemini API**: 10 calls per run (multi-query on: a planning
+call before each answer), so they are opt-in.
 
     pytest -m gemini          # needs GEMINI_API_KEY; skipped without it
 
@@ -75,7 +76,7 @@ def test_an_injected_document_does_not_take_over_the_answer(client, alice):
 
 
 def test_a_streamed_follow_up_is_rewritten_and_answered(client, alice):
-    """M13: 3 calls (first answer, rewrite in JSON mode, follow-up answer)."""
+    """M13 + M14: 4 calls (plan + answer for each question; the follow-up's plan rewrites it)."""
     kb_id = library(client, alice, {"leave.txt": LEAVE, "expenses.txt": EXPENSES})
     first = start(client, kb_id, "What does the policy say about unused annual leave?")
     assert [name for name, _ in first][-1] == "done", first

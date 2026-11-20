@@ -11,6 +11,7 @@ import {
   renameConversation,
   streamAnswer,
 } from "./api/conversations";
+import { listDocuments } from "./api/documents";
 import { listKnowledgeBases } from "./api/knowledgeBases";
 import { linkCitations } from "./components/chat/AnswerText";
 import { renderApp, TEST_USER } from "./test/renderApp";
@@ -24,6 +25,7 @@ vi.mock("./api/knowledgeBases", () => ({
   updateKnowledgeBase: vi.fn(),
   deleteKnowledgeBase: vi.fn(),
 }));
+vi.mock("./api/documents", () => ({ listDocuments: vi.fn() }));
 vi.mock("./api/conversations", async (importOriginal) => ({
   ...(await importOriginal()),
   listConversations: vi.fn(),
@@ -124,6 +126,7 @@ beforeEach(() => {
   getMe.mockResolvedValue(TEST_USER);
   listKnowledgeBases.mockResolvedValue([kb(HR), kb(FIN)]);
   listConversations.mockResolvedValue([]);
+  listDocuments.mockResolvedValue([]);
   streamAnswer.mockImplementation(plays(events()));
 });
 
@@ -361,6 +364,27 @@ describe("chat page", () => {
     await screen.findByText(/2 sources cited/);
     expect(streamAnswer.mock.calls[1][0]).toMatchObject({ conversationId: null, kbId: HR.id });
     expect(getConversation).not.toHaveBeenCalled();
+  });
+
+  it("can limit the search to one ready document and says so under the question", async () => {
+    const doc = (id, status, metadata) => ({ id, status, original_filename: `${id}.md`, metadata });
+    listDocuments.mockResolvedValue([
+      doc("leave", "ready", { document_id: "NX-HR-002", version: "3.0", title: "Annual Leave" }),
+      doc("notes", "ready", {}),
+      doc("pending", "processing", {}),
+    ]);
+    renderApp("/chat");
+    const user = userEvent.setup();
+    const scope = await screen.findByRole("combobox", { name: "Search in" });
+    await waitFor(() => expect(within(scope).getAllByRole("option")).toHaveLength(3)); // all + 2 ready
+    expect(within(scope).getByRole("option", { name: "NX-HR-002 v3.0 · Annual Leave" })).toBeInTheDocument();
+    expect(within(scope).getByRole("option", { name: "notes.md" })).toBeInTheDocument();
+
+    await user.selectOptions(scope, "leave");
+    await ask("Carry forward?", user);
+    expect(streamAnswer).toHaveBeenCalledWith(expect.objectContaining({ documentId: "leave" }));
+    const note = await screen.findByText(/Searched in:/);
+    expect(note).toHaveTextContent("Searched in: NX-HR-002 v3.0 · Annual Leave only");
   });
 
   it("needs a question, sends on Enter and keeps Shift+Enter for new lines", async () => {

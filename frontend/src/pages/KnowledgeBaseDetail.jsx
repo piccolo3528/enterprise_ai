@@ -18,9 +18,9 @@ import KnowledgeBaseFormModal from "../components/knowledge-bases/KnowledgeBaseF
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
-import Spinner from "../components/ui/Spinner";
 import { useDocuments } from "../hooks/useDocuments";
 import { formatDate } from "../utils/format";
+import BrandLoader from "../components/ui/BrandLoader";
 
 function BackLink() {
   return (
@@ -56,10 +56,7 @@ function DocumentsSection({ kbId, onCountChange }) {
         />
       )}
       {!items && !error && (
-        <div className="flex items-center gap-3 text-sm text-slate-500">
-          <Spinner label="Loading documents" />
-          Loading documents…
-        </div>
+        <BrandLoader label="Loading documents…" />
       )}
       {items?.length === 0 && (
         <EmptyState
@@ -147,10 +144,7 @@ export default function KnowledgeBaseDetail() {
 
   if (!kb) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-        <Spinner label="Loading knowledge base" />
-        Loading…
-      </div>
+      <BrandLoader label="Loading the knowledge base…" />
     );
   }
 

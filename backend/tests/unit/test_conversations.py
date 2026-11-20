@@ -362,7 +362,7 @@ def streamed(monkeypatch):
         state["saved"].append(kwargs)
         return uuid.UUID(int=42)
 
-    monkeypatch.setattr(rag.retrieval, "search", search)
+    monkeypatch.setattr(rag.answer_retrieval.retrieval, "search", search)
     monkeypatch.setattr(rag.conversations, "save_turn", save_turn)
 
     def run(
@@ -588,3 +588,54 @@ def test_an_empty_follow_up_is_refused_before_anything_runs(client):
     sign_in(client)
     response = client.post(f"/api/conversations/{uuid.uuid4()}/messages", json={"question": " "})
     assert response.status_code == 422
+
+
+class PlanningLLM(StreamLLM):
+    """Answers the M14 planning call with phrasings."""
+
+    def generate(self, *, system, prompt, model=None, json_schema=None, max_output_tokens=None):
+        self.events.append("llm.plan")
+        self.calls.append(("generate", system, prompt, model))
+        if self.rewrite_error:
+            raise self.rewrite_error
+        reply = {"standalone_question": STANDALONE,
+                 "search_queries": ["carry forward unused leave", "leave lapse at year end"]}
+        return LLMResult(json.dumps(reply), "utility-001", "stop", 120, 15, 1, {})
+
+
+def test_multi_query_plans_first_questions_and_searches_every_phrasing(streamed, monkeypatch):
+    searched = []
+    fixture_search = rag.answer_retrieval.retrieval.search  # the fixture's fake
+
+    def recording(db, vectors, embedder, **kwargs):
+        searched.append(kwargs["query"])
+        return fixture_search(db, vectors, embedder, **kwargs)
+
+    monkeypatch.setattr(rag.answer_retrieval.retrieval, "search", recording)
+    settings = rag.AnswerSettings(candidates=20, max_sources=10, token_budget=5000,
+                                  rewrite_model="utility", multi_query=True)  # fmt: skip
+    llm = PlanningLLM(streamed["events"])
+    turn = rag.Turn(OWNER, KB, CONVERSATION, new=True, history=[])
+    out = list(rag.stream_answer(
+        Sessions(streamed["events"], "read"), Sessions(streamed["events"], "write"), None,
+        lambda: None, llm, turn=turn, question="Can I keep leave?", settings=settings,
+    ))  # fmt: skip
+    assert [d["stage"] for n, d in out if n == "status"] == ["planning", "retrieving",
+                                                            "generating"]  # fmt: skip
+    # a first question is planned too; its standalone form (if different) is searched first
+    assert searched == [STANDALONE, "carry forward unused leave", "leave lapse at year end"]
+    assert out[-1][1]["rewritten_query"] == STANDALONE and "plan" in out[-1][1]["timings_ms"]
+    assert llm.calls[0][1] == rag.MULTI_QUERY_SYSTEM_PROMPT
+
+
+def test_a_failed_plan_on_a_first_question_searches_as_written_without_a_notice(streamed):
+    settings = rag.AnswerSettings(candidates=20, max_sources=10, token_budget=5000,
+                                  multi_query=True)  # fmt: skip
+    llm = PlanningLLM(streamed["events"], rewrite_error=RateLimitedError("busy"))
+    turn = rag.Turn(OWNER, KB, CONVERSATION, new=True, history=[])
+    out = list(rag.stream_answer(
+        Sessions(streamed["events"], "read"), Sessions(streamed["events"], "write"), None,
+        lambda: None, llm, turn=turn, question="Can I keep leave?", settings=settings,
+    ))  # fmt: skip
+    assert streamed["search"]["query"] == "Can I keep leave?"
+    assert rag.REWRITE_FAILED not in out[-1][1]["notices"]  # nothing to rewrite on a first one

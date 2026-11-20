@@ -6,10 +6,10 @@ import KnowledgeBaseFormModal from "../components/knowledge-bases/KnowledgeBaseF
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
-import Spinner from "../components/ui/Spinner";
 import { useAuth } from "../context/AuthContext";
 import { useKnowledgeBases } from "../hooks/useKnowledgeBases";
 import { formatDate, plural } from "../utils/format";
+import BrandLoader from "../components/ui/BrandLoader";
 
 const RECENT = 5;
 
@@ -53,10 +53,7 @@ export default function Dashboard() {
         {error && <ErrorBanner title="Couldn't load your dashboard" error={error} onRetry={reload} />}
 
         {!items && loading && (
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            <Spinner label="Loading dashboard" />
-            Loading…
-          </div>
+          <BrandLoader label="Loading your dashboard…" />
         )}
 
         {totals && (

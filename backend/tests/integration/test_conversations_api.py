@@ -30,7 +30,7 @@ from app.services.llm.base import LLMResult
 from app.services.llm.prompts import REWRITE_SYSTEM_PROMPT, SYSTEM_PROMPT
 from tests.helpers import act_as, live_settings
 from tests.integration.test_answer_api import EXPENSES, LEAVE, library
-from tests.integration.test_documents_api import new_kb
+from tests.integration.test_documents_api import documents, new_kb
 
 pytestmark = pytest.mark.live
 
@@ -49,9 +49,17 @@ class FakeStreamingLLM:
         self.calls: list[tuple[str, str, str]] = []  # (kind, system, prompt)
         self.cite = "carried forward"
         self.standalone = STANDALONE
+        self.phrasings = ["reimbursement of travel expenses after receipts"]
         self.fail: Exception | None = None
 
     def generate(self, *, system, prompt, model=None, json_schema=None, max_output_tokens=None):
+        if "search_queries" in (json_schema or {}).get("properties", {}):  # M14 planning call
+            self.calls.append(("plan", system, prompt))
+            question = re.search(r"<question>\n(.*)\n</question>", prompt, re.S).group(1)
+            first = "<conversation>\n\n</conversation>" in prompt
+            reply = {"standalone_question": question if first else self.standalone,
+                     "search_queries": self.phrasings}  # fmt: skip
+            return LLMResult(json.dumps(reply), "fake-1", "stop")
         self.calls.append(("rewrite", system, prompt))
         return LLMResult(json.dumps({"standalone_question": self.standalone}), "fake-1", "stop")
 
@@ -92,7 +100,8 @@ class KeepOpen:
 
 @pytest.fixture
 def client(db, tmp_path, vector_store, llm):
-    settings = live_settings(upload_dir=tmp_path / "uploads")
+    # M13 behaviour by default (no planning call on first questions); M14's test turns it on
+    settings = live_settings(upload_dir=tmp_path / "uploads", multi_query_enabled=False)
     app = create_app(settings, warm_up=False)
 
     @contextmanager
@@ -108,6 +117,7 @@ def client(db, tmp_path, vector_store, llm):
     with TestClient(app, base_url="https://testserver") as c:
         c.secret = settings.jwt_secret.get_secret_value()
         c.app_ = app
+        c.settings_ = settings
         yield c
 
 
@@ -264,3 +274,50 @@ def test_the_llm_must_be_configured_before_the_stream_starts(client, alice):
     client.app_.dependency_overrides[get_llm] = not_configured
     response = client.post(f"/api/knowledge-bases/{kb_id}/conversations", json={"question": FIRST})
     assert response.status_code == 503 and response.json()["error"]["code"] == "llm_not_configured"
+
+
+def test_a_question_can_be_limited_to_one_document(client, alice, llm):
+    """M14: with document_id, only that document is searched (its passages are the only
+    sources); a document of another knowledge base is a 404 before any LLM call."""
+    kb_id = library(client, alice, {"leave.txt": LEAVE, "expenses.txt": EXPENSES})
+    by_name = {d["original_filename"]: d["id"] for d in documents(client, kb_id)}
+    llm.cite = "reimbursed"
+    response = client.post(
+        f"/api/knowledge-bases/{kb_id}/conversations",
+        json={"question": FIRST, "document_id": by_name["expenses.txt"]},
+    )
+    events = parse_events(response)
+    _, _, prompt = llm.calls[-1]
+    assert EXPENSES in prompt and LEAVE not in prompt  # leave.txt wasn't searched
+    assert [c["filename"] for c in events[-2][1]] == ["expenses.txt"]
+
+    other_kb = library(client, alice, {"other.txt": "Unrelated text about parking permits."})
+    stranger = documents(client, other_kb)[0]["id"]
+    calls = len(llm.calls)
+    refused = client.post(f"/api/knowledge-bases/{kb_id}/conversations",
+                          json={"question": FIRST, "document_id": stranger})  # fmt: skip
+    assert refused.status_code == 404
+    assert refused.json()["error"]["message"] == "Document not found."
+    conversation_id = events[0][1]["id"]
+    refused = client.post(f"/api/conversations/{conversation_id}/messages",
+                          json={"question": FOLLOW_UP, "document_id": stranger})  # fmt: skip
+    assert refused.status_code == 404 and len(llm.calls) == calls
+
+
+def test_with_multi_query_first_questions_get_one_planning_call(client, alice, llm):
+    """M14 (D75): with MULTI_QUERY_ENABLED, every question starts with one planning call (first
+    questions too), then the answer. That the phrasings are searched and fused is checked in the
+    unit tests (this tiny library returns both documents for any query)."""
+    from app.api.deps import get_app_settings
+
+    multi = client.settings_.model_copy(update={"multi_query_enabled": True})
+    client.app_.dependency_overrides[get_app_settings] = lambda: multi
+    kb_id = library(client, alice, {"leave.txt": LEAVE, "expenses.txt": EXPENSES})
+    llm.cite = "reimbursed"
+    events = start(client, kb_id, "When do I get my money back for a trip?")
+    stages = [d["stage"] for n, d in events if n == "status"]
+    assert stages == ["planning", "retrieving", "generating"]
+    assert [kind for kind, _, _ in llm.calls] == ["plan", "answer"]
+    done = events[-1][1]
+    assert done["rewritten_query"] is None and "plan" in done["timings_ms"]  # first: unchanged
+    assert [c["filename"] for c in events[-2][1]] == ["expenses.txt"]

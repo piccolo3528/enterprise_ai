@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-20** · Current milestone: **M13 — Streaming & Conversation Memory (COMPLETED)** · Next: **M14 — Advanced RAG**
+> Last updated: **2026-11-20** · Current milestone: **M14 — Advanced RAG (COMPLETED)** · Next: **M15 — Evaluation Framework v2 (Answers)**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -180,8 +180,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 29 | Top-K & similarity thresholds | How many results to fetch; minimum score to count as relevant | COMPLETED (M10: `top_k` 1–50 shown, ≥ `RETRIEVAL_TOP_K` (20) candidates per retriever; `min_score` = minimum cosine, semantic side only. M12: the LLM gets `CONTEXT_MAX_SOURCES` = 10 passages, chosen from M11's numbers (hybrid Hit@10 100 % vs Hit@5 96 %, Recall@10 90 % vs 83 %, ~2.7k tokens); no score threshold decides "not found" (D62)) | ☐ | `services/retrieval.py`, `services/rag.py` |
 | 30 | Keyword (lexical) search | Exact-term matching (PostgreSQL FTS); good for codes, names, numbers | COMPLETED (M10: any of the query's lexemes, ranked by words matched then `ts_rank_cd`; "all words" found nothing for 3/3 full questions on the user's data, D55) | ☐ | `services/keyword_search.py` |
 | 31 | Hybrid search & RRF | Fusing dense and sparse rankings by rank, not raw score | COMPLETED (M10: RRF k=60 written by hand, hand-computed tests; on the user's data hybrid put the current "Work From Anywhere" (v2.0) above the archived v1.0 section that semantic alone ranked first) | ☐ | `services/retrieval.py` |
-| 32 | Bi-encoder vs cross-encoder | Separate encodings (fast) vs joint reading (accurate) | IN PROGRESS (M1 demo: 0.78/0.62 vs 9.48/−3.96) | ☐ | `scripts/download_models.py` → `reranker.py` (M14) |
-| 33 | Reranking | Precise second-stage ordering of a small candidate set | NOT STARTED | ☐ | `reranker.py` |
+| 32 | Bi-encoder vs cross-encoder | Separate encodings (fast) vs joint reading (accurate) | COMPLETED (M14: the cross-encoder reads (question, passage) together; measured on 57 questions it ranked *worse* than our hybrid search here (Hit@1 64 % vs 72 %) at 4–8 s on CPU, D72) | ☐ | `services/reranker.py` |
+| 33 | Reranking | Precise second-stage ordering of a small candidate set | COMPLETED, measured and switched off (M14, D72: pools 20/30/50 all Hit@1 64 %, MRR 0.764–0.770 vs 0.814; fused with the hybrid order by RRF: 70 %, 0.802; amendment Recall@5 49 % → 32 %; a score threshold would drop relevant passages first (−4: 17 of 88 lost)) | ☐ | `services/reranker.py`, `answer_retrieval.py` |
 | 34 | RAG pipeline | Retrieve first, then generate only from what was retrieved | COMPLETED (M12: hybrid retrieval → release the DB connection → context → Gemini → NOT_FOUND check → citation validation → notices; per-stage timings; the log has counts, never text) | ☐ | `services/rag.py` |
 | 35 | System prompts & templates | Fixed instructions + slots for sources, history and question | COMPLETED (M12: 6 rules in the system instruction; documents only in the user message as `<source id=… document=… status=… section=…>`; `PROMPT_VERSION` "answer-v1" returned with each answer) | ☐ | `llm/prompts.py` |
 | 36 | Temperature & sampling | Randomness control; kept low for factual answers | COMPLETED (M12: `LLM_TEMPERATURE` 0.1; still not deterministic: Q054 was answered in one run and refused in the next) | ☐ | `llm/gemini.py` |
@@ -194,9 +194,9 @@ explain the concept back in your own words (or answer the related interview ques
 | 43 | Rate limits, retries, backoff | Living within quotas; exponential backoff with jitter | COMPLETED (M12: hand-written token bucket (burst 2, fair FIFO reservations, waits ≤ 10 s then `rate_limited`); per-minute 429 → retry after the server's RetryInfo delay; per-day quota → `quota_exhausted`, no retry; 5xx/timeouts → full-jitter backoff; one 60 s deadline. One real 503 was retried successfully) | ☐ | `llm/rate_limiter.py`, `llm/gemini.py` |
 | 44 | Conversation memory | Persisted history fed back within a token budget | COMPLETED (M13: questions and answers saved per turn; the last `HISTORY_MAX_TURNS` (6) turns, `[n]` markers removed, trimmed oldest first to `HISTORY_TOKEN_BUDGET` (1,500); used only by the rewriter, never by the answer prompt, D69) | ☐ | `services/history.py`, `services/conversations.py` |
 | 45 | Query rewriting | Turning "and for part-timers?" into a standalone query | COMPLETED (M13: "Can they be carried forward?" → "Can annual leave days be carried forward?" in Chrome and 3/3 follow-ups in a scripted run; skipped on the first turn; failure → searched as written + a notice) | ☐ | `services/rag.py` (`rewrite_question`), `llm/prompts.py` |
-| 46 | Multi-query retrieval | Several phrasings → union of results → better recall | NOT STARTED | ☐ | `query_processing.py`, `retrieval.py` |
-| 47 | Context compression | Keeping only the sentences relevant to the query | NOT STARTED | ☐ | `context_builder.py` |
-| 48 | "Lost in the middle" | LLMs under-use mid-context facts; order and size matter | NOT STARTED | ☐ | `context_builder.py` |
+| 46 | Multi-query retrieval | Several phrasings → union of results → better recall | COMPLETED (M14, D75: one planning call writes 2 phrasings; the 3 searches are fused by RRF. With the version rule: Hit@1 72 % → 82 %, MRR 0.814 → 0.881, ambiguous-wording Recall@5 72 % → 89 %; retrieval ~0.9 s vs ~0.3 s plus the planning call; on by default, user decision) | ☐ | `services/answer_retrieval.py`, `rag.py` (`plan_queries`), `llm/prompts.py` |
+| 47 | Context compression | Keeping only the sentences relevant to the query | DEFERRED to M15 (D76): retrieval metrics can't tell whether a compressed passage still answers; it needs answer-level evaluation. Measured instead: contexts are ~2.5k embedding tokens, half the budget | ☐ | `context_builder.py` |
+| 48 | "Lost in the middle" | LLMs under-use mid-context facts; order and size matter | DEFERRED to M15 (D76): ordering is unmeasurable without answer evaluation; sources stay in rank order (best first) | ☐ | `context_builder.py` |
 | 49 | Recall@K / Precision@K / MRR / Hit rate | Retrieval metrics against labelled relevant chunks | COMPLETED (M11: written by hand and unit-tested on hand-computed values; relevance = a chunk's text overlaps the body of an expected section in the expected version) | ☐ | `evaluation/metrics.py` |
 | 50 | Faithfulness / groundedness | Is every answer claim supported by the context? (LLM-as-judge) | NOT STARTED | ☐ | `evaluation/metrics.py` |
 | 51 | Answer relevance | Does the answer address the question? | NOT STARTED | ☐ | `evaluation/metrics.py` |
@@ -227,6 +227,8 @@ explain the concept back in your own words (or answer the related interview ques
 | 77 | Exact incremental post-processing of a stream | Transform text as it arrives but hold back only what a later character could still change, so the streamed text equals the batch result | COMPLETED (M13: `NotFoundGate` holds "N", "NOT_"…; `CitationStream` holds an open `[2, ` or a `[6.1]` awaiting its next character; tested equal to the batch rules on every 3-way split of 10 tricky answers) | ☐ | `services/answer_stream.py` |
 | 78 | Client disconnects and cleanup | When the reader leaves, stop the work, close upstream calls and record what was shown | COMPLETED (M13: Starlette cancels the response; the async wrapper closes the sync pipeline in a shielded scope; `GeneratorExit` saves the shown text as `stopped` and closes the Gemini stream; verified 4/4 by dropping connections directly and through the Vite proxy) | ☐ | `routes/conversations.py` (`event_stream`), `services/rag.py` |
 | 79 | Sync code behind an async stream | Run blocking steps (SQLAlchemy, the Gemini SDK) in worker threads, one `next()` per event, from an async generator | COMPLETED (M13: `anyio.to_thread.run_sync(next, events)`; the middleware is plain ASGI, so nothing buffers the stream) | ☐ | `routes/conversations.py` |
+| 80 | Version-aware retrieval | Prefer the version in force; keep an old one only when the question asks about the past or names a date in its validity window | COMPLETED (M14, D73: outdated passages demoted after ranking; "old version first" 2 → 0 of 15, superseded Recall@5 73 % → 87 %, ~+5–25 ms) | ☐ | `services/version_rules.py` |
+| 81 | Measure, then keep or discard | Build the technique, measure it on the labelled set, and switch it off when it doesn't win, with the numbers written down | COMPLETED (M14: reranking, amendment expansion and chunk merging measured and not used; version rule and multi-query kept) | ☐ | `evaluation/compare_retrieval.py`, `reports/2026-11-20_*` |
 | 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
 ---
@@ -449,16 +451,17 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M12.
 - **Testing:** 369 unit (+60: streaming filters vs batch rules on every split, Gemini streaming with fakes, rewrite prompt/parsing/fallback, history trimming, titles, the streamed pipeline's event order/saving/stop/errors, SSE format, routes) · 106 live (+8: SSE order, saved turns, follow-up rewrite with history, not found, failed first answer, rename/delete, KB delete cascade, cross-user matrix) · 4 real-Gemini tests (+1: a streamed follow-up) · 102 frontend (+14) (§F.8).
 
-### M14 — Advanced RAG · `NOT STARTED`
+### M14 — Advanced RAG · `COMPLETED` (2026-11-20)
 - **Objective:** Add techniques one at a time, measured against M11.
 - **Tasks** (each: problem → implement → measure → keep or discard → log):
-  - [ ] Cross-encoder reranking (+ rerank-score threshold)
-  - [ ] Multi-query retrieval (same LLM call as the rewrite)
-  - [ ] Context compression; adjacent-chunk merging + dedupe; ordering
-  - [ ] Per-document retrieval filtering in the UI
-- **Expected output:** updated report showing each technique's effect and latency cost.
+  - [x] Cross-encoder reranking (+ rerank-score threshold, + a fused variant): built (`services/reranker.py`), **measured worse and switched off** (D72)
+  - [x] Multi-query retrieval in the planning call (the M13 rewrite extended to also write 2 phrasings): **kept, on for every question** (D75, user decision)
+  - [x] Version-aware retrieval (S4 rules 1–2): **kept, demote** (D73); amendment expansion (S4 rule 3): built, **no measured gain, off** (D74)
+  - [x] Context compression / adjacent-chunk merging / ordering: merging **measured and not built** (≤ ~107 duplicate tokens per question); compression and ordering **deferred to M15**, which can measure answers (D76)
+  - [x] Per-document filtering in the chat: "Search in" next to Ask; `document_id` on the ask/chat requests, checked before the stream (404) (D77)
+- **Expected output:** updated report showing each technique's effect and latency cost. **Achieved:** `evaluation/reports/2026-11-20_retrieval_techniques.md` (12 variants) and `2026-11-20_retrieval_combinations.md` (6 more); best: multi-query + demote, Hit@1 82 % (72 %), Hit@3 96 % (88 %), MRR 0.881 (0.814), Recall@5 85 % (83 %), old version first 0 of 15 (2), one question with nothing relevant in the top 5 (two).
 - **Dependencies:** M13.
-- **Testing:** per-component unit tests; re-run evaluation.
+- **Testing:** 385 unit (+17: reranker with a fake model, dates/history/version rules, amendment choice, the pipeline's stage order and fusion, planning on first questions and its fallback) · 108 live (+2: document filter incl. 404s before any LLM call, planning call on a first question) · 4 real-Gemini (planning prompt in JSON mode with an array) · 103 frontend (+2) · Chrome on the user's servers (§F.8).
 
 ### M15 — Evaluation Framework v2 (Answers) · `NOT STARTED`
 - **Objective:** Measure answer quality.
@@ -526,13 +529,16 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - Conversations (M13): answers stream in as they're written; questions and answers are saved
   per conversation; follow-ups are rewritten into standalone questions from the recent turns;
   Stop keeps what was shown; a sidebar lists, opens, renames and deletes conversations.
-- Next: advanced RAG (M14).
+- Advanced retrieval (M14): every question is planned into 3 phrasings searched together, outdated
+  policy versions rank below current ones, and a question can be limited to one document.
+  Hit@1 72 % → 82 % on the labelled set. Reranking was measured and not adopted.
+- Next: answer evaluation (M15).
 
 ### F.2 In progress
-- Nothing. M14 (advanced RAG) is next.
+- Nothing. M15 (answer evaluation) is next.
 
 ### F.3 Remaining functionality
-- Everything in M14–M17 (M18 optional).
+- Everything in M15–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -590,7 +596,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L38 | Every server start (and every `--reload`) imports PyTorch and loads the model in the background: 24 s warm, 45–89 s cold on this laptop | An upload in that window waits for the model; CPU is busy meanwhile | Runs in the background warm-up, so the server answers at once; a lighter ONNX runtime is the alternative if it becomes a problem |
 | L39 | `reindex.py` drops and recreates the collection | Semantic search returns nothing during a rebuild (70 s for 74 chunks); a job indexing at the same time can be wiped | Run it while idle; it ends with a per-document check that reports any such document. Aliases (build `chunks_v2`, then switch) would remove the gap |
 | L40 | Possible orphan points: a document that failed while Qdrant was down; an upload accepted into a KB in the moment between "mark deleting" and the cascade delete | Points whose chunks/KB no longer exist | Harmless: search must join to PostgreSQL chunks of `ready` documents (M10) and can't reach a deleted KB; the next reprocess/delete/reindex removes them; `reindex.py --check` lists them |
-| L41 | Dense retrieval alone (measured on the user's data, 3 questions) | The BGE prefix changed no top result; an archived v2.0 passage ranked 3rd; "sick during my holiday" found no sick-leave passage | Prefix benefit measured in M11; `doc_status` filter (S4) in M14; keyword + hybrid search in M10; reranking in M14 |
+| L41 | Dense retrieval alone (measured on the user's data, 3 questions) | The BGE prefix changed no top result; an archived v2.0 passage ranked 3rd; "sick during my holiday" found no sick-leave passage | Prefix measured in M11; hybrid search M10; **version rule M14** (old version first 0 of 15); reranking measured and not adopted (D72) |
 | L42 | Startup recovery could mark a document failed whose reprocess was clicked in the first seconds after a restart (before recovery ran) | A retry right after a restart shows "interrupted" | Pre-existing since M7, noticed in M9; retry again. Fix: record the queue time, not `created_at` |
 | L43 | One unexplained "session expired" (401) in Chrome on the first KB delete in M9 | The delete didn't happen; the user was sent to sign in | Not reproduced: the second attempt with network capture returned 204. The dev server logs only to its console, so the failing request couldn't be identified. Watch for it |
 | L44 | Keyword ranking has no IDF (PostgreSQL `ts_rank` doesn't know a word is in every chunk) | Common words weigh like rare ones; coverage-first ranking (D55) helps but isn't BM25 | Hybrid fusion compensates; measure in M11; Qdrant sparse vectors (BM25) or hand-computed IDF are the alternatives |
@@ -601,14 +607,14 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L49 | 50 scored questions, labelled by one author | One question = 2 points; differences under ~4 points aren't evidence; labels can carry the author's blind spots | Report the noise floor next to every comparison; add questions as failures are found |
 | L50 | Coverage-first keyword ranking favours long chunks | Keyword top-1 chunks average 314 tokens vs 246 (semantic); part of keyword's lead (Hit@5 98 % vs 86 %) is "more text", and it spends more context | Report tokens next to hit rates; BM25 has length normalisation built in |
 | L51 | Keyword ties are broken by chunk id, which is random per build | Two identical evaluation runs differed by one question (keyword Hit@1 64 % vs 66 %) | Deterministic enough for the app; a stable secondary key (document, chunk index) would make runs repeatable |
-| L52 | Version confusion | Semantic search shows an old version first for 6 of 15 questions about multi-version documents (e.g. Q001: archived v2.0 "18 days" above v3.0 "20 days"); hybrid 2 of 15; Q041 fails in every mode | The `status = current` filter (S4) in M14 |
-| L53 | Amendment questions: the right passages are found but not ranked first | `amendment_combination`: Hit@5 100 % but Recall@5 49 %, MRR 0.386 | Retrieve the amendment with its base document (S4 rule 3) and rerank, M14 |
+| L52 | ~~Version confusion~~ | — | **Resolved in M14 (D73):** old version first 2 → 0 of 15; Q041 found by multi-query (no longer a top-5 failure) |
+| L53 | Amendment questions: the right passages are found but not ranked first | `amendment_combination` Recall@5 49 % → 46 % with M14, MRR 0.39 → 0.66 | The amendment itself already ranks 1st (D74); what's missing is a *related* document's table (L69) |
 | L54 | The context token budget is counted in the embedding model's tokens (`Chunk.token_count`), not Gemini's | The 5,000 budget is approximate (mean prompt measured at 3,598 Gemini tokens for 10 sources) | Far below any limit; count with Gemini's `count_tokens` only if budgets ever get tight (it costs a request) |
 | L55 | ~~Answers are single-turn and not saved~~ | — | **Resolved in M13:** conversations are saved, and follow-ups are rewritten using the recent turns |
 | L56 | The injection heuristic is a list of patterns | Paraphrased or non-English injections aren't flagged | Best-effort by design: flagging is only one layer; the system instruction, escaping, no tools and citation validation don't depend on it |
 | L57 | Retrieval is slower when questions are spaced out: p50 836 ms in the answer runs vs 238 ms back-to-back in M11 | Connections/keep-alives are re-opened between questions (L45) | Observation logged; it is ~1/3 of the answer time; revisit with M14's timings |
 | L58 | The evaluation harness only flushes (never commits), while `rag.answer_question` calls `db.close()` | Calling rag from the harness would roll back the indexed corpus | `answers_check.py` passes a session wrapper whose `close()` does nothing; M15's answer evaluation needs the same |
-| L59 | Questions that need facts from two documents (Q054: the hotel limit is in NX-FIN-001, Kochi's tier in NX-OPS-002) | NX-OPS-002 wasn't in the top 10, so the model refused (run 2) or assumed Kochi's tier without a source (run 1) | Amendment/related-document retrieval and reranking (S4, M14); multi-query (M14) |
+| L59 | Questions that need facts from two documents (Q054: the hotel limit is in NX-FIN-001, Kochi's tier in NX-OPS-002) | NX-OPS-002 wasn't in the top 10 | Still open after M14: see L69 |
 | L60 | The first question after a server start waits for the embedding model (102 s cold measured) | M12: the browser gave up at 75 s | **Chat (M13):** the browser now gives up only after 120 s without any event, which covers it; `/ask` is unchanged. A readiness flag that answers 503 "warming up" is the fix if it matters |
 | L61 | The model sometimes cites section numbers instead of source numbers (Q041 run 2: `(§6.1)`… and no `[n]`) | The answer has no source citations | The prompt rule + the `(§…)` rewrite; such answers get the "doesn't cite any of your documents" notice |
 | L62 | A follow-up costs two Gemini calls (rewrite + answer) | Twice the quota; under Gemini overload (503 "high demand", 2026-11-19/20) the rewrite's retries took 18–50 s, and twice they ran out and the question was searched as written | Skipped on first questions; the fallback + notice keeps answering; a shorter retry budget for the rewrite (it has a fallback), or multi-query in the same call (M14) |
@@ -616,6 +622,13 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L64 | A stopped answer is saved as the server sent it, which can be a little more than the browser showed | Measured: 184 characters read, 294 saved (tokens already in transit) | Harmless: it is text the model wrote for that question; noted so nobody is surprised |
 | L65 | If Gemini fails at about the moment Stop is pressed, nothing is saved (the pipeline is already in its error branch) | The partial answer is lost | Seen twice during the 503 storm, not confirmed in logs (the user's server); 4/4 scripted stops saved correctly with Gemini working |
 | L66 | A failed answer saves nothing and its partial text is dropped from the page | Retry asks again (another call) | Deliberate: a failed answer is not an answer; the error says what happened |
+| L67 | Multi-query phrasings sometimes invent details despite the prompt ("international" travel, "Tier 1 cities", "tier 4") | An invented phrasing can pull in unrelated passages | Fused by rank with the user's own wording, so it can't dominate; net effect measured positive (D75) |
+| L68 | Every question now starts with a planning call | Two Gemini calls per first question; +1–5 s typical ("Preparing the search…", 5.1 s on a slow day) | User decision (D75); a failed plan falls back to searching the question as written; `MULTI_QUERY_ENABLED=false` restores one call |
+| L69 | Facts spread over related documents (the hotel limit in NX-FIN-001-A1, the city's tier in NX-OPS-002 §4.1) | Q055 still has nothing relevant in the top 5; amendment-type Recall@5 46 % | Retrieve `related_documents` from front matter, or a per-question entity lookup (later) |
+| L70 | Multi-query costs a little on version questions | Superseded Recall@5 87 % (demote alone) → 80 % (with multi-query); multi-document 76 % → 73 % | Small, outweighed overall (Hit@1 +8 points); noted for M15's answer-level check |
+| L71 | Only one reranker tried (ms-marco MiniLM-L-6, English web queries, CPU) | A domain or larger reranker (e.g. bge-reranker) might rank differently | The switch and code stay (`RERANK_ENABLED`); re-measure with another model if retrieval regresses |
+| L72 | The version rule's "historical" detection is English patterns + dates | A past-tense question without those words gets current versions first | Outdated passages are demoted, not removed, so they're still in the context |
+| L73 | The document filter isn't saved with the message | A reloaded conversation doesn't show which document a question was limited to | Store it on the message if it matters |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -634,7 +647,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D10 | 2026-11-05 | Sync SQLAlchemy + threadpool; async only for streaming | Simpler to learn/debug | Fully async SQLAlchemy | Implemented (M2–M13: the streamed answer is a sync generator run step by step in worker threads behind an async wrapper, D68) |
 | D11 | 2026-11-05 | FastAPI BackgroundTasks for ingestion | No broker needed | Celery/RQ + Redis | Approved (user: no Redis/Celery) |
 | D12 | 2026-11-05 | SSE streaming; citations after the text | One-way stream; validation needs the full answer | WebSockets | Implemented (M13, D68): citation *numbers* are validated while streaming; the cited passages follow in `citations` |
-| D13 | 2026-11-05 | Threshold gate before the LLM | Prevents hallucination; saves quota | Prompt-only refusal | **Superseded by D62 (M12):** measured, neither cosine nor the cross-encoder's score separates unanswerable questions |
+| D13 | 2026-11-05 | Threshold gate before the LLM | Prevents hallucination; saves quota | Prompt-only refusal | **Superseded by D62 (M12):** measured, neither cosine nor the cross-encoder's score separates unanswerable questions; the reranker itself was measured worse in M14 (D72) |
 | D14 | 2026-11-05 | Evaluation before advanced RAG | Measure each technique | Evaluate at the end | Proposed |
 | D15 | 2026-11-06 | **PostgreSQL = Neon (free plan, PG 17)** — *supersedes "local PostgreSQL via Docker or native" (v0.1)* | User decision: no local Postgres server, no Docker | Local PostgreSQL, Docker Compose | **Approved (user)** |
 | D16 | 2026-11-06 | **Qdrant = official Windows binary on 127.0.0.1**; Qdrant Cloud free tier as fallback | Fastest, offline, no account, no inactivity deletion, vectors stay local; fallback needs only env changes | Qdrant Cloud as primary; Docker; pgvector (rejected by user); `QdrantClient(path=...)` local mode (in-process only, not a real service) | Proposed |
@@ -689,6 +702,12 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D69 | 2026-11-19 | **History goes only to the rewriter**, never into the answer prompt: last 6 turns, `[n]` removed, 1,500-token budget, oldest dropped first; the rewrite is JSON (utility model) and falls back to the question as written | The answer stays grounded in sources only, and earlier answers' `[n]` can't be confused with this answer's sources; fewer tokens per answer | History in the answer prompt (common, but mixes earlier answers into the evidence) | Accepted (M13) |
 | D70 | 2026-11-19 | **A conversation is created by its first answered question**, and each turn (question + answer) is saved in one transaction at the end; errors save nothing; Stop saves the shown text as `stopped`; citations are saved as snapshots of what was shown | No empty conversations or unanswered questions; a saved conversation stays readable after its documents are reprocessed or deleted | Create on "New chat"; save the question first; store chunk ids only | Accepted (M13) |
 | D71 | 2026-11-19 | Messages ordered by `created_at` = `clock_timestamp()`, question first on a tie; renaming keeps `updated_at` | `now()` is the transaction's start (equal for every row of a test's single transaction); the list is ordered by activity, and a rename isn't activity | `now()` + insertion order; a sequence column | Accepted (M13) |
+| D72 | 2026-11-20 | **Cross-encoder reranking built, measured, switched off** (`RERANK_ENABLED=false`) | 57 questions: Hit@1 72 % → 64 % (pools 20, 30, 50), MRR 0.814 → 0.764–0.770, amendment Recall@5 49 % → 32 %, 4–8.6 s per question on CPU; fused with the hybrid order by RRF: 70 %, 0.802, ~3 s. Likely cause: an English web-search reranker vs policy text where our keyword side already wins | Keep it on for "best practice"; a threshold on its score (would drop relevant passages first) | Accepted (M14) |
+| D73 | 2026-11-20 | **Version-aware retrieval: demote** outdated versions (front matter `status`) below current ones, after ranking; keep them in place when the question is historical or names a date in their validity window | Old version first 2 → 0 of 15; superseded Recall@5 73 % → 87 %; Q042 ("On 31 December 2025…") keeps v2.0; +5–25 ms. Filtering scored the same but removes passages the heuristic might need | Filter (spec rule 1 as written); no rule | Accepted (M14) |
+| D74 | 2026-11-20 | **Amendment expansion built, off by default** (`AMENDMENTS_ENABLED=false`) | The amendment already ranks 1st in all 6 amendment questions (its text names its base), so recall didn't change (49 %) while retrieval took ~+100 ms. The real miss is a related document (L69) | On by default | Accepted (M14) |
+| D75 | 2026-11-20 | **Multi-query on for every question** (`MULTI_QUERY_ENABLED=true`): one planning call (the M13 rewrite prompt extended, "query-plan-v1") returns the standalone question + 2 phrasings; the 3 hybrid searches are fused by RRF | With demote: Hit@1 74 % → 82 %, MRR 0.826 → 0.881, keyword-ambiguity Recall@5 72 % → 89 %. Cost: first questions 1 → 2 Gemini calls, retrieval ~0.9 s vs ~0.3 s plus the planning call | Follow-ups only (free in the rewrite call); off | Accepted (M14, **user decision**) |
+| D76 | 2026-11-20 | **No chunk merging; compression and ordering deferred to M15** | Adjacent pairs occur in 49 of 57 questions but duplicate at most ~107 tokens per question (~4 % of ~2.5k); compression/ordering change answers, not retrieval metrics, so they need M15's answer evaluation | Build all three now, unmeasured | Accepted (M14) |
+| D77 | 2026-11-20 | **Per-document filter**: optional `document_id` on `/ask` and both chat POSTs; checked (KB yours, document in it) before the stream starts; amendment expansion skipped when filtered | A clean 404 instead of an error event; the search API already filtered by document (M10) | Filter in the UI only | Accepted (M14) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -708,6 +727,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-06 | Added `rag-documents/` (git-ignored) for user-collected test documents | — | Keep possibly non-redistributable docs out of git |
 | 2026-11-09 | **`react-router` 8** instead of `react-router-dom` | ARCHITECTURE §7 `react-router-dom` | Since v7 the DOM APIs live in `react-router`; `react-router-dom` stopped at 7.x. Same API, different import name |
 | 2026-11-13 | **react-markdown 10.1.0** added (frontend) | — | Answers are Markdown (lists, bold); rendered without raw HTML (D67) |
+| 2026-11-20 | `RERANK_TOP_N` removed (never read); new `RERANK_ENABLED`, `RERANK_POOL`, `RERANK_MIN_SCORE`, `VERSION_MODE`, `AMENDMENTS_ENABLED`, `MULTI_QUERY_ENABLED` | ARCHITECTURE §8 `RERANK_TOP_N` | Each technique is a switch, with the default its measurement supports (D72–D75) |
 
 ### F.8 Testing results
 | Date | Milestone | Suite | Result | Notes |
@@ -793,6 +813,13 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-19 | M13 | Stop, scripted (read ~180 chars, drop the connection) | ✔ 4/4 | Directly to uvicorn :8001 and :8000, and through a Vite proxy to each: saved as `stopped` within 0.5 s ("Answer stopped by the reader" in the log). Two earlier stops (Chrome, 5173) saved nothing during the 503 storm (L65) |
 | 2026-11-20 | M13 | Latency, 3 conversations × (question + follow-up), uvicorn :8001 | ℹ Gemini degraded | All 3 rewrites right ("…the deadline for submitting expense claims?", "…the remote and hybrid work policy regarding office attendance?"); server time to first token 3.0–13.1 s, rewrite 2.5–18.2 s, totals 7.8–47.0 s (M12 measured generate p50 1.5 s on a healthy day): not a fair baseline, to re-measure in M14 |
 | 2026-11-20 | M13 | Cleanup | ✔ | Check KB deleted through the API (Qdrant points + files), throwaway user deleted; left: 1 user, 1 KB, 5 documents, 74 chunks = 74 points, 0 conversations |
+| 2026-11-20 | UI (before M14, user request) | Fixed sidebar + branded loader, Chrome | ✔ | Sidebar `sticky top-0 h-screen` on md+: scrolled 3,181 px, every link visible, top bar pinned. Loader = the logo tile with a light scan, a halo and breathing (off under reduced motion), for page/section loads and the chat's stages; buttons keep the small spinner. Vitest from Git Bash failed in every suite ("failed to find the current suite") even on committed code; from PowerShell 102/102 |
+| 2026-11-20 | M14 | `compare_retrieval.py`, 12 variants (heading 400/60, 57 questions, test branch rolled back) | ✔ report | Baseline reproduces M11 exactly (72 % / 83 % / 0.814). Rerank 20/30/50: Hit@1 64 %, 4.1/5.1/8.6 s p50; demote: 74 %, 0 of 15 old-first; amendments: no change; multi-query: 80 %, MRR 0.870, ~1.0 s. A unit test caught a bug first: stage timings never reached the caller (a separate dict), which would have reported 0 ms everywhere |
+| 2026-11-20 | M14 | `generate_query_variants.py` (57 planning calls) | ✔ 54/57 | 3 calls failed on Gemini 503s (those questions search as written); some phrasings invent details (L67) |
+| 2026-11-20 | M14 | `compare_retrieval.py`, 6 more variants | ✔ report | Fused rerank 70 % / 0.802 (still worse); **multi-query + demote 82 % / 0.881 / 0 of 15, p50 911 ms** |
+| 2026-11-20 | M14 | `ruff` / `pytest` / `-m live` / `-m gemini` | ✔ / 385 / 108 / 4 passed | Unit +17, live +2; the M12/M13 live fixtures pin multi-query off (they test one call per first question) and a new test turns it on |
+| 2026-11-20 | M14 | `npm test` / `npm run build` (PowerShell) | ✔ 103 / ✔ | +2: "Search in" lists ready documents and sends `documentId`, the turn says "Searched in … only"; request body with/without `document_id`. Build main 391.7 kB + Chat 143.1 kB |
+| 2026-11-20 | M14 | Chrome on the user's servers, throwaway account (4 policies) | ✔ | First question: "Preparing the search…" 5.1 s (planning), retrieval 1.2 s, first token after 4.6 s, 10.8 s total; answer leads with v3.0 (20 days), v2.0 mentioned as superseded. "Search in: NX-HR-003 v2.0" + follow-up: "Searched in … only", 3 sources all from that policy, 4.5 s. Cleanup: 258 chunks = 258 points |
 | 2026-11-13 | M10 | Keyword query design, measured read-only on the user's "HR Policies" (74 chunks) | ℹ decided | AND (`websearch_to_tsquery`): 0 rows for "How many days of annual leave can I carry forward to next year?", "Can I work from another country?", "What happens if I get sick during my holiday?"; OR + `ts_rank_cd`: results, but "Leave Year and Leave Types" 1st for "carry forward leave"; coverage-first: both carry-forward sections 1st–3rd, §6.1 from 4th to 2nd on the long question; all ~60 ms (D55) |
 | 2026-11-13 | M10 | `retrieval.search` on the user's KB, 4 questions × 3 modes (read-only) | ✔ | "carry forward leave": all three modes → §10.1 Carried-forward balances, §6 Carry-Forward (v3.0), §6 (v2.0). "Can I work from another country?": semantic 1st = archived v1.0 "Working from Home", hybrid 1st = current v2.0 "Work From Anywhere" (semantic #2 + keyword #4). "Sick during my holiday": still weak in every mode (L41). Timings: semantic ~245 ms (embed 30, Qdrant 150, passages 60, scope check overlapped), keyword ~177 ms, hybrid 248–308 ms (~355 sequential) |
 | 2026-11-13 | M10 | `ruff check` | ✔ clean | New files formatted; two M9 files (`pipeline.py`, `vector_store.py`) still differ from `ruff format` (cosmetic, left as is) |
@@ -845,6 +872,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **M11:** no new dependencies or settings. The evaluation uses `TEST_DATABASE_URL` (rolled back) and the Qdrant collection `chunks_eval` (deleted after each run). A run takes ~100 s (`run_eval.py`) or ~400 s (`compare_chunking.py`) on this laptop.
 **M12:** google-genai (installed in M1) now used; frontend react-markdown 10.1.0 (0 vulnerabilities). New settings `LLM_TEMPERATURE` (0.1), `LLM_MAX_OUTPUT_TOKENS` (1024), `LLM_TIMEOUT_SECONDS` (25), `LLM_MAX_RETRIES` (2), `CONTEXT_MAX_SOURCES` (10). New pytest marker `gemini` (opt-in, 3 real calls). A unit run takes 2–4 min on this laptop.
 **M13:** no new dependencies. New settings `HISTORY_MAX_TURNS` (6), `HISTORY_TOKEN_BUDGET` (1500). Migration `0927000418b6` (message `outcome`/`notices`/`prompt_version`) on `production` and `test`. `pytest -m gemini` is now 4 tests, 6 calls.
+**M14:** no new dependencies (the cross-encoder was installed in M1). Settings: `RERANK_ENABLED` (false), `RERANK_POOL` (20), `RERANK_MIN_SCORE`, `VERSION_MODE` (demote), `AMENDMENTS_ENABLED` (false), `MULTI_QUERY_ENABLED` (true); `RERANK_TOP_N` removed. Experiments: `compare_retrieval.py` ~40 min for 12 variants (reranking dominates), `generate_query_variants.py` 57 calls ~9 min. `pytest -m gemini`: 4 tests, 10 calls.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -971,11 +999,19 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   the raw error (Gemini's 503 "high demand" mid-stream); a design with a fallback (the rewrite)
   keeps answering when a dependency is flaky, but its retries still cost the user time;
   reproduce with a second instance you can see when the first's logs aren't yours.
+- **M14:** a "best practice" can lose on your data: the cross-encoder made ranking worse at every
+  pool size and cost seconds, so it's off, with the numbers written down; read the failures
+  before building the fix (amendments already ranked first; the real miss was a related
+  document); cheap rules beat models when the data has structure (front-matter status fixed
+  version confusion for ~20 ms); let the measurement pick the setting, and let the user pick the
+  trade-off (multi-query doubles calls for +8 points Hit@1); a unit test caught an instrument bug
+  (timings never reached the caller) before it could fake "0 ms" in the report; when an
+  experiment overwrites its own report, copy the first one before re-running.
 
 ### F.10 Next recommended action
-1. Start **M14 — Advanced RAG**, one technique at a time, measured against M11/M12: cross-encoder reranking (+ rerank-score threshold), multi-query retrieval (in the rewrite's call), context compression / adjacent-chunk merging / ordering, per-document filtering in the chat. Re-measure answer latency on a day Gemini is healthy (L62).
+1. Start **M15 — Evaluation Framework v2 (Answers)**: faithfulness (claim-level LLM-as-judge), answer relevance, refusal correctness and citation accuracy on the 57 questions with the M14 pipeline; then the deferred context experiments (compression, ordering, D76) measured on answers, and the M14 trade-offs on version questions (L70).
 2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
-3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT`.
+3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT` (every question now costs 2 calls).
 
 ### F.10b Target (set by the user, 2026-11-10)
 **Finish M7–M17 by Sunday 15 November 2026**, at the user's own pace (no external deadline). That
@@ -1011,6 +1047,7 @@ wired in behind the LLM provider interface in M12.
 - **Retrieval evaluation**: hand-written Hit@K / Recall@K / Precision@K / MRR over 57 labelled questions, version-exact relevance from character offsets, the real search code run inside a rolled-back transaction, chunking/mode/prefix comparisons, an ablation that rejected my own hypothesis, a measured noise floor, and an unanswerable-threshold analysis (M11).
 - **Grounded answers (RAG)**: a hand-built pipeline from hybrid retrieval to Gemini with numbered sources, an LLM-decided "not found" chosen by measurement, citation validation and renumbering, layered prompt-injection defences, a hand-written token bucket with quota-aware retries and a deadline, lazy SDK initialisation, and a chat page with a citation panel, measured on 57 questions (M12).
 - **Streaming chat with memory**: SSE over POST read with `fetch`, text filtered as it streams so it never changes afterwards (proven on every split point), retries only before the first token, Stop that cancels upstream and saves what was shown, conversations saved per turn, follow-ups rewritten in JSON mode from a token-budgeted history that never reaches the answer prompt (M13).
+- **Measured retrieval improvements**: every technique built behind a switch and measured on 57 labelled questions before choosing its default: multi-query fused by RRF and version-aware ranking kept (Hit@1 72 % → 82 %, MRR 0.814 → 0.881, old version first 2 → 0), cross-encoder reranking and amendment expansion measured and not adopted; per-document filtering (M14).
 - **Retrieval**: semantic, keyword and hybrid search with RRF written by hand; keyword ranking chosen by measuring on real questions (any word, ranked by words matched); PostgreSQL confirms every vector hit before fusion; top-K, a cosine threshold, per-stage timings, the semantic side overlapped with PostgreSQL, and a keyword fallback when Qdrant is down (M10).
 - **Embeddings & vector storage**: local CPU embeddings loaded once (measured: no lock, batch 16), hand-written cosine, Qdrant with indexed tenant filters that require owner + KB, ordered writes/deletes across Qdrant/PostgreSQL/disk with races and outages tested live, and a rebuild/check script (M9).
 - **Chunking**: four strategies written from scratch with token-exact sizing (the embedding model's tokenizer), page/section metadata from character spans, structure-aware chunks with context headers, batched inserts, chunk inspector and reprocessing (M8).
@@ -1032,13 +1069,13 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 4 | What is an embedding? What does cosine similarity measure, and why normalize? | In Notion (M9) |
 | 5 | Why hybrid search? When does keyword beat semantic? | In Notion (M10) |
 | 6 | What is Reciprocal Rank Fusion, and why not add scores? | In Notion (M10) |
-| 7 | Bi-encoder vs cross-encoder: why not cross-encode everything? | After M14 |
+| 7 | Bi-encoder vs cross-encoder: why not cross-encode everything? | In Notion (M14) |
 | 8 | How do you stop the model hallucinating? | In Notion (M12) |
 | 9 | How do you handle prompt injection in retrieved documents? | In Notion (M12) |
 | 10 | How do you guarantee one user can't retrieve another user's documents? | In Notion (M9) |
 | 11 | Define Recall@K, Precision@K and MRR. How did you measure retrieval? | In Notion (M11) |
 | 12 | How do you measure faithfulness? Limits of LLM-as-judge? | After M15 |
-| 13 | The context window is 1M tokens, so why not send everything? | After M14 |
+| 13 | The context window is 1M tokens, so why not send everything? | In Notion (M14) |
 | 14 | How do follow-up questions work? | In Notion (M13) |
 | 15 | How do you handle LLM rate limits and outages? | In Notion (M12) |
 | 16 | How do you keep PostgreSQL and Qdrant consistent? | In Notion (M9) |
@@ -1066,7 +1103,7 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 38 | How do you make a name unique per user, ignoring case? | In Notion (M6) |
 | 39 | PATCH vs PUT: how do you tell "not sent" from "set to null"? | In Notion (M6) |
 | 40 | How did you test tenant isolation? | In Notion (M6) |
-| 41 | Two retrieved passages conflict. Which one wins? | In Notion (📐 designed, not built: version-aware retrieval S4, M14) |
+| 41 | Two retrieved passages conflict. Which one wins? | In Notion (M14) |
 | 42 | How do you make file uploads safe? | In Notion (M7) |
 | 43 | How does your background processing work, and what happens if the server restarts? | In Notion (M7) |
 | 44 | How do you get text out of PDFs and Word files, and what can go wrong? | In Notion (M7) |
@@ -1092,6 +1129,10 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 64 | What happens when the user presses Stop? | In Notion (M13) |
 | 65 | Why doesn't your answer prompt include the conversation history? | In Notion (M13) |
 | 66 | How do you test streaming code? | In Notion (M13) |
+| 67 | Did reranking improve your retrieval? | In Notion (M14) |
+| 68 | How do you handle several versions of the same policy? | In Notion (M14) |
+| 69 | What is multi-query retrieval, and was it worth the extra LLM call? | In Notion (M14) |
+| 70 | How do you decide whether to keep a RAG technique? | In Notion (M14) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 
@@ -1157,7 +1198,7 @@ Each has a unit test asserting that a known fake secret does *not* appear in the
 | Working backend (all endpoints, OpenAPI docs) | NOT STARTED | |
 | Database integration (Neon + migrations, Qdrant) | NOT STARTED | |
 | Complete RAG pipeline with citations and "not found" handling | IN PROGRESS | M12: validated citations, LLM-decided "not found" (57 questions, Chrome); M13: streamed, saved, follow-ups rewritten (Chrome, scripted); reranking/multi-query in M14 |
-| Advanced retrieval (hybrid, rerank, rewrite, multi-query, compression) | NOT STARTED | |
+| Advanced retrieval (hybrid, rerank, rewrite, multi-query, compression) | COMPLETED (compression deferred to M15) | M10 hybrid, M13 rewrite, M14 multi-query + version rule kept, reranking measured and not adopted (reports 2026-11-20) |
 | Evaluation (retrieval + answer metrics, report) | NOT STARTED | |
 | Security checks (authz matrix, uploads, injection, secrets, Qdrant localhost) | NOT STARTED | |
 | Error handling (API + UI states, LLM failures, rate limits, Neon cold start) | NOT STARTED | |

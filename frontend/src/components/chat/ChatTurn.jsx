@@ -1,12 +1,13 @@
-import { CircleStop, CornerDownRight, SearchX, TriangleAlert } from "lucide-react";
+import { CircleStop, CornerDownRight, FileText, SearchX, TriangleAlert } from "lucide-react";
 
 import { plural } from "../../utils/format";
 import ErrorBanner from "../ui/ErrorBanner";
-import Spinner from "../ui/Spinner";
+import BrandLoader from "../ui/BrandLoader";
 import AnswerText from "./AnswerText";
 
 const STAGES = {
   rewriting: "Working out what your follow-up refers to…",
+  planning: "Preparing the search…",
   retrieving: "Searching your documents…",
   generating: "Writing the answer…",
 };
@@ -30,6 +31,15 @@ export default function ChatTurn({ turn, selected, onCite, onRetry }) {
         {question}
       </div>
 
+      {turn.documentName && (
+        <p className="flex max-w-[85%] gap-1.5 text-xs text-slate-500">
+          <FileText aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Searched in: <span className="font-medium">{turn.documentName}</span> only
+          </span>
+        </p>
+      )}
+
       {rewrittenQuery && (
         <p className="flex max-w-[85%] gap-1.5 text-xs text-slate-500">
           <CornerDownRight aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
@@ -40,10 +50,7 @@ export default function ChatTurn({ turn, selected, onCite, onRetry }) {
       )}
 
       {status === "streaming" && !text && (
-        <div role="status" className="flex items-center gap-3 text-sm text-slate-500">
-          <Spinner label="Answering" />
-          {STAGES[stage] ?? "Sending your question…"}
-        </div>
+        <BrandLoader variant="inline" label={STAGES[stage] ?? "Sending your question…"} />
       )}
 
       {status === "error" && <ErrorBanner title="Couldn't answer this question" error={error} onRetry={onRetry} />}

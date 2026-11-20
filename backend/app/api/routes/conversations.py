@@ -40,7 +40,6 @@ from app.api.deps import (
     SettingsDep,
     VectorStoreDep,
 )
-from app.core.config import Settings
 from app.schemas.answers import AskRequest
 from app.schemas.conversations import (
     ConversationDetail,
@@ -49,7 +48,7 @@ from app.schemas.conversations import (
     ConversationRename,
     MessageOut,
 )
-from app.services import conversations, rag
+from app.services import conversations, rag, retrieval
 from app.services.embeddings import get_embedder
 from app.services.history import select_history
 from app.services.ingestion.tokens import get_tokens
@@ -80,15 +79,6 @@ async def event_stream(events: Iterator[rag.Event]) -> AsyncIterator[str]:
             await anyio.to_thread.run_sync(events.close)
 
 
-def _answer_settings(settings: Settings) -> rag.AnswerSettings:
-    return rag.AnswerSettings(
-        candidates=settings.retrieval_top_k,
-        max_sources=settings.context_max_sources,
-        token_budget=settings.context_token_budget,
-        rewrite_model=settings.gemini_model_utility,
-    )
-
-
 def _respond(events: Iterator[rag.Event]) -> StreamingResponse:
     return StreamingResponse(
         event_stream(events), media_type="text/event-stream", headers=SSE_HEADERS
@@ -110,7 +100,8 @@ def start_conversation(
     """Ask the first question of a new conversation; the answer streams back. The conversation
     is saved with its first answer (its id comes in the first event); nothing is saved if the
     answer fails."""
-    conversations.check_knowledge_base(db, user_id, kb_id)
+    # 404 unless the KB is yours (and the document, if one was chosen, is in it). One query.
+    retrieval.check_scope(db, user_id, kb_id, body.document_id)
     db.close()  # release the connection now: the stream outlives this function
     turn = rag.Turn(user_id, kb_id, uuid.uuid4(), new=True, history=[])
     return _respond(
@@ -122,8 +113,9 @@ def start_conversation(
             llm,
             turn=turn,
             question=body.question,
-            settings=_answer_settings(settings),
-        )  # fmt: skip
+            settings=rag.answer_settings(settings),
+            document_id=body.document_id,
+        )
     )
 
 
@@ -144,6 +136,8 @@ def ask_follow_up(
     kb_id, messages = conversations.load_for_follow_up(
         db, user_id, conversation_id, max_turns=settings.history_max_turns
     )
+    if body.document_id:
+        retrieval.check_scope(db, user_id, kb_id, body.document_id)
     db.close()
     history = select_history(
         messages, budget=settings.history_token_budget, tokens=get_tokens(settings.embedding_model)
@@ -158,8 +152,9 @@ def ask_follow_up(
             llm,
             turn=turn,
             question=body.question,
-            settings=_answer_settings(settings),
-        )  # fmt: skip
+            settings=rag.answer_settings(settings),
+            document_id=body.document_id,
+        )
     )
 
 

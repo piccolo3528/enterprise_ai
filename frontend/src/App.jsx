@@ -3,7 +3,6 @@ import { Navigate, Route, Routes } from "react-router";
 
 import AppLayout from "./components/layout/AppLayout";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/layout/RouteGuards";
-import Spinner from "./components/ui/Spinner";
 import Dashboard from "./pages/Dashboard";
 import DocumentChunks from "./pages/DocumentChunks";
 import KnowledgeBaseDetail from "./pages/KnowledgeBaseDetail";
@@ -13,6 +12,7 @@ import NotFound from "./pages/NotFound";
 import Register from "./pages/Register";
 import Search from "./pages/Search";
 import SystemStatus from "./pages/SystemStatus";
+import BrandLoader from "./components/ui/BrandLoader";
 
 // Loaded on first visit: the Markdown renderer it needs is ~130 kB of the bundle (measured:
 // 520 kB with it in the main bundle vs 389 kB before M12), and no other page uses it.
@@ -20,10 +20,7 @@ const Chat = lazy(() => import("./pages/Chat"));
 
 function PageLoading() {
   return (
-    <div className="flex items-center gap-3 text-sm text-slate-500">
-      <Spinner label="Loading page" />
-      Loading…
-    </div>
+    <BrandLoader label="Loading…" />
   );
 }
 

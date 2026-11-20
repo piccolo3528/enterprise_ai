@@ -67,11 +67,6 @@ def test_overlap_must_be_smaller_than_chunk_size():
         make_settings(chunk_size_tokens=100, chunk_overlap_tokens=100)
 
 
-def test_rerank_top_n_cannot_exceed_top_k():
-    with pytest.raises(ConfigError, match="RERANK_TOP_N"):
-        make_settings(retrieval_top_k=5, rerank_top_n=10)
-
-
 def test_empty_environment_value_means_not_set(monkeypatch):
     monkeypatch.setenv("QDRANT_API_KEY", "")  # like the line `QDRANT_API_KEY=` in .env
     assert make_settings().qdrant_api_key is None

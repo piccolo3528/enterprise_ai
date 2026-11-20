@@ -42,3 +42,5 @@ rag-documents/*
 
 # Raw per-question evaluation output (~0.7 MB per run; regenerate with evaluation/run_eval.py)
 backend/evaluation/reports/*.json
+# ...except the cached LLM phrasings: they reproduce the multi-query numbers without quota
+!backend/evaluation/reports/*_query_variants.json

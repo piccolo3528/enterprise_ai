@@ -115,7 +115,7 @@ def fake_db(monkeypatch):
     def load_passages(db, owner_id, kb_id, chunk_ids, document_id):
         return {i: passage(i) for i in chunk_ids if i in state["confirmed"]}
 
-    monkeypatch.setattr(retrieval, "_check_scope", check_scope)
+    monkeypatch.setattr(retrieval, "check_scope", check_scope)
     monkeypatch.setattr(retrieval, "_load_passages", load_passages)
     monkeypatch.setattr(
         retrieval, "keyword_search", lambda db, **kw: state["keyword"][: kw["limit"]]

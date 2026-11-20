@@ -8,10 +8,10 @@ import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
 import Input from "../components/ui/Input";
-import Spinner from "../components/ui/Spinner";
 import StatusBadge from "../components/ui/StatusBadge";
 import { useKnowledgeBases } from "../hooks/useKnowledgeBases";
 import { plural } from "../utils/format";
+import BrandLoader from "../components/ui/BrandLoader";
 
 const MODE_LABELS = {
   hybrid: { label: "Hybrid", hint: "Meaning and exact words, combined" },
@@ -229,10 +229,7 @@ export default function Search() {
   }
   if (!knowledgeBases) {
     return (
-      <div className="flex items-center gap-3 text-sm text-slate-500">
-        <Spinner label="Loading knowledge bases" />
-        Loading…
-      </div>
+      <BrandLoader label="Loading knowledge bases…" />
     );
   }
   if (knowledgeBases.length === 0) {

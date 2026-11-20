@@ -2,7 +2,7 @@ import { Navigate, Outlet, useLocation } from "react-router";
 
 import { useAuth } from "../../context/AuthContext";
 import ErrorBanner from "../ui/ErrorBanner";
-import Spinner from "../ui/Spinner";
+import BrandLoader from "../ui/BrandLoader";
 
 function FullPage({ children }) {
   return (
@@ -15,7 +15,7 @@ function SessionCheck() {
   if (status === "loading") {
     return (
       <FullPage>
-        <Spinner label="Checking your session" className="size-8" />
+        <BrandLoader variant="page" label="Checking your session…" />
       </FullPage>
     );
   }

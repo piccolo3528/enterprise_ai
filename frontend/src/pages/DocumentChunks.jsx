@@ -6,10 +6,10 @@ import { getDocument, listChunks, reprocessDocument } from "../api/documents";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
-import Spinner from "../components/ui/Spinner";
 import StatusBadge from "../components/ui/StatusBadge";
 import { POLL_INTERVAL_MS, isPending } from "../hooks/useDocuments";
 import { plural } from "../utils/format";
+import BrandLoader from "../components/ui/BrandLoader";
 
 export const PAGE_SIZE = 50;
 
@@ -136,10 +136,7 @@ export default function DocumentChunks() {
       {back}
       {error && <ErrorBanner title="Something went wrong" error={error} onRetry={load} />}
       {!document && !error && (
-        <div className="flex items-center gap-3 text-sm text-slate-500">
-          <Spinner label="Loading document" />
-          Loading…
-        </div>
+        <BrandLoader label="Loading the document…" />
       )}
       {document && (
         <>

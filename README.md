@@ -4,15 +4,16 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M13 done: backend and frontend skeletons, the database schema on Neon
+> **Project status: M0–M14 done: backend and frontend skeletons, the database schema on Neon
 > (Singapore), accounts, private knowledge bases with a dashboard, document upload with
 > background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector,
 > local embeddings stored in Qdrant (with safe deletes and a rebuild script), semantic,
 > keyword and hybrid search, a retrieval evaluation over 57 labelled questions
 > (hybrid: 96 % of answers in the top 5), and grounded answers from Gemini with validated
 > citations (7 of 7 unanswerable questions refused, 0 invalid citations), streamed into saved
-> conversations where follow-up questions ("Can they be carried forward?") are understood.
-> Next: advanced RAG (M14).**
+> conversations where follow-up questions ("Can they be carried forward?") are understood, and
+> retrieval improved by measurement (Hit@1 72 % → 82 %: multi-query and version-aware ranking;
+> reranking measured and not adopted). Next: answer evaluation (M15).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -368,21 +369,28 @@ frontend.
   delete with the bin). Follow-up questions can refer to earlier ones (*"Can they be carried
   forward?"*): they are rewritten into a full question first, shown as *Searched for: …* (one
   extra Gemini call; if it fails, the question is searched as written and a note says so).
+  Since M14 every question starts with *Preparing the search…*: one Gemini call writes two
+  more phrasings, and all three are searched together, which finds passages your own words
+  miss. Current policy versions rank above superseded ones unless you ask about the past or
+  mention a date when the old version applied. **Search in** (next to Ask) limits a question to
+  one document; the answer then says *Searched in: … only*.
   Answers took ~2–3 s in M12; when Gemini is busy (it often answered 503 "high demand" during
   M13's checks) they can take 10–40 s or fail with *"The AI service isn't responding"*: use
   **Retry**. The first question after the server starts can take longer while the embedding model
   loads. Settings in `backend/.env`: `LLM_TEMPERATURE`, `LLM_MAX_OUTPUT_TOKENS`,
   `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `CONTEXT_MAX_SOURCES`, `HISTORY_MAX_TURNS`,
-  `HISTORY_TOKEN_BUDGET`; without `GEMINI_API_KEY` the page explains that answering isn't
-  configured.
+  `HISTORY_TOKEN_BUDGET`, and the retrieval switches `MULTI_QUERY_ENABLED` (true),
+  `VERSION_MODE` (demote), `RERANK_ENABLED` (false), `AMENDMENTS_ENABLED` (false), whose
+  defaults come from `backend/evaluation/reports/2026-11-20_retrieval_*.md`; without
+  `GEMINI_API_KEY` the page explains that answering isn't configured.
 
-### 13. Run the tests *(verified; M13: 369 unit + 106 live backend (+4 real-Gemini), 102 frontend)*
+### 13. Run the tests *(verified; M14: 385 unit + 108 live backend (+4 real-Gemini), 103 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)
 pytest                      # unit tests: no network, don't read backend/.env
 pytest -m live              # live tests against the real Neon + Qdrant in backend/.env
-pytest -m gemini            # 6 real Gemini calls (opt-in: uses your free quota)
+pytest -m gemini            # 10 real Gemini calls (opt-in: uses your free quota)
 ruff check app tests        # code-quality checks
 ruff format --check app tests
 
@@ -394,7 +402,7 @@ npm run build               # production build check
 From M4, database integration tests use the Neon **`test`** branch (`TEST_DATABASE_URL`) and a
 separate Qdrant collection, so they never touch your development data.
 
-### 14. Run the retrieval evaluation *(verified, M11)*
+### 14. Run the retrieval evaluation *(verified, M11; techniques M14)*
 
 ```powershell
 # backend/, venv active; needs TEST_DATABASE_URL and Qdrant in backend/.env
@@ -402,7 +410,13 @@ python evaluation/validate_corpus.py       # check the corpus and the 57 labelle
 python evaluation/run_eval.py              # ~100 s: report in evaluation/reports/<date>_heading_400-60.md
 python evaluation/run_eval.py --strategy recursive --size 200 --overlap 30
 python evaluation/compare_chunking.py      # ~7 min: 5 chunking configs x 3 search modes
+# M14: reranking, version rule, amendments, multi-query (uses the cached phrasings; no Gemini calls)
+python evaluation/compare_retrieval.py --multi-query evaluation/reports/2026-11-20_query_variants.json
+python evaluation/generate_query_variants.py   # only to regenerate the phrasings: 57 Gemini calls
 ```
+
+`compare_retrieval.py` takes ~40 min, mostly the cross-encoder on CPU (`--only "<variant>" …` runs a
+subset).
 
 Nothing is kept: the corpus is indexed inside a database transaction that is rolled back, and in
 a Qdrant collection (`chunks_eval`) that is deleted at the end. With 50 scored questions, one
@@ -423,7 +437,8 @@ make that first request a little slower.
 ## Known limitations (summary)
 
 - Gemini's free tier: limited daily requests, and content may be used by Google. Not for confidential data.
-- A follow-up question costs two Gemini calls (rewrite + answer). The answer model sees only the
+- Every question costs two Gemini calls (planning + answer; `MULTI_QUERY_ENABLED=false` makes
+  first questions cost one). The answer model sees only the
   sources, never the conversation, so questions *about* the conversation ("what did I ask
   first?") aren't answered from it.
 - Neon's free plan: 1 GB storage, 100 compute-hours a month, and the database sleeps after 5 idle minutes.

@@ -10,9 +10,10 @@ import CitationPanel from "../components/citations/CitationPanel";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
-import Spinner from "../components/ui/Spinner";
+import BrandLoader from "../components/ui/BrandLoader";
 import Textarea from "../components/ui/Textarea";
 import { useConversations } from "../hooks/useConversations";
+import { useDocuments } from "../hooks/useDocuments";
 import { useKnowledgeBases } from "../hooks/useKnowledgeBases";
 
 const QUESTION_MAX = 1000;
@@ -22,6 +23,16 @@ const selectClass =
   "mt-1.5 block w-full rounded-lg border-0 py-2 pr-8 pl-3 text-sm text-slate-900 shadow-xs ring-1 ring-slate-300 ring-inset focus:ring-2 focus:ring-indigo-600";
 
 let nextTurnId = 1;
+
+/** How a document is named in the "Search in" list: its code and version, else its file name. */
+export function documentLabel(document) {
+  const meta = document.metadata ?? {};
+  if (meta.document_id) {
+    const version = meta.version ? ` v${meta.version}` : "";
+    return meta.title ? `${meta.document_id}${version} · ${meta.title}` : `${meta.document_id}${version}`;
+  }
+  return document.original_filename;
+}
 
 const NOTHING_SHOWN = { kbId: undefined, conversationId: undefined };
 
@@ -79,6 +90,10 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const { items: documents } = useDocuments(kbId);
+  const readyDocuments = (documents ?? []).filter((d) => d.status === "ready");
+  const [scopeId, setScopeId] = useState(""); // "" = all documents
+  useEffect(() => setScopeId(""), [kbId]);
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState(null);
   const [selected, setSelected] = useState(null); // {turnKey, number}
@@ -149,7 +164,7 @@ export default function Chat() {
   }, [turns]);
 
   const ask = useCallback(
-    async (question, key) => {
+    async (question, key, scope) => {
       const target = shownRef.current; // the conversation this question belongs to
       const run = { controller: new AbortController(), stopped: false, received: "" };
       streamRef.current = run;
@@ -174,6 +189,7 @@ export default function Chat() {
           kbId: target.kbId,
           conversationId: target.conversationId,
           question,
+          documentId: scope?.id,
           signal: run.controller.signal,
           onEvent: (name, data) => {
             if (name === "conversation") {
@@ -244,8 +260,13 @@ export default function Chat() {
     setDraftError(null);
     setDraft("");
     const key = `local-${nextTurnId++}`;
-    setTurns((all) => [...all, { key, question, status: "streaming", text: "", citations: [], notices: [] }]);
-    ask(question, key);
+    const document = readyDocuments.find((d) => d.id === scopeId);
+    const scope = document ? { id: document.id, name: documentLabel(document) } : null;
+    setTurns((all) => [
+      ...all,
+      { key, question, scope, documentName: scope?.name, status: "streaming", text: "", citations: [], notices: [] },
+    ]);
+    ask(question, key, scope);
   }
 
   function stop() {
@@ -290,10 +311,7 @@ export default function Chat() {
   }
   if (!knowledgeBases) {
     return (
-      <div className="flex items-center gap-3 text-sm text-slate-500">
-        <Spinner label="Loading knowledge bases" />
-        Loading…
-      </div>
+      <BrandLoader label="Loading knowledge bases…" />
     );
   }
   if (knowledgeBases.length === 0) {
@@ -365,10 +383,7 @@ export default function Chat() {
 
         <section aria-label="Conversation" className="min-w-0 space-y-4">
           {loading && (
-            <div role="status" className="flex items-center gap-3 text-sm text-slate-500">
-              <Spinner label="Loading the conversation" />
-              Loading the conversation…
-            </div>
+            <BrandLoader label="Loading the conversation…" />
           )}
           {loadError && (
             <ErrorBanner
@@ -395,7 +410,7 @@ export default function Chat() {
                   turn={turn}
                   selected={selected?.turnKey === turn.key ? selected.number : null}
                   onCite={(number) => setSelected({ turnKey: turn.key, number })}
-                  onRetry={() => ask(turn.question, turn.key)}
+                  onRetry={() => ask(turn.question, turn.key, turn.scope)}
                 />
               ))}
             </ol>
@@ -415,7 +430,23 @@ export default function Chat() {
                 error={draftError}
                 hint="Enter to send, Shift+Enter for a new line."
               />
-              <div className="flex justify-end">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <label className="block w-full text-xs font-medium text-slate-600 sm:w-80">
+                  Search in
+                  <select
+                    value={scopeId}
+                    disabled={busy}
+                    onChange={(e) => setScopeId(e.target.value)}
+                    className={selectClass}
+                  >
+                    <option value="">All documents in this knowledge base</option>
+                    {readyDocuments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {documentLabel(d)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 {busy ? (
                   <Button variant="secondary" icon={Square} onClick={stop}>
                     Stop

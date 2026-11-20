@@ -7,9 +7,9 @@ import KnowledgeBaseFormModal from "../components/knowledge-bases/KnowledgeBaseF
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
-import Spinner from "../components/ui/Spinner";
 import { useKnowledgeBases } from "../hooks/useKnowledgeBases";
 import { byUpdatedDesc, formatDate, plural } from "../utils/format";
+import BrandLoader from "../components/ui/BrandLoader";
 
 function KnowledgeBaseCard({ kb, onEdit, onDelete }) {
   return (
@@ -120,10 +120,7 @@ export default function KnowledgeBases() {
         )}
 
         {!items && loading && (
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-            <Spinner label="Loading knowledge bases" />
-            Loading knowledge bases…
-          </div>
+          <BrandLoader label="Loading knowledge bases…" />
         )}
 
         {items?.length === 0 && (

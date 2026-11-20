@@ -1,7 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M13 (2026-11-20).** Parts labelled
-> "implemented in M2" … "M13" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M14 (2026-11-20).** Parts labelled
+> "implemented in M2" … "M14" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
@@ -195,14 +195,11 @@ is swallowed silently.
 ```mermaid
 flowchart TD
     Q[User question + conversation id] --> H[Load recent history<br/>token-budgeted]
-    H --> QP{Follow-up?}
-    QP -- yes --> RW[Query rewriting → standalone query<br/>+ optional multi-query variants<br/>ONE Gemini call]
-    QP -- no --> MQ[Original query]
-    RW --> RET
-    MQ --> RET
-    RET[Hybrid retrieval per query<br/>dense: Qdrant top-K, filter kb_id<br/>sparse: Postgres FTS top-K<br/>fuse: Reciprocal Rank Fusion]
-    RET --> RER[Cross-encoder rerank<br/>keep top-N · M14]
-    RER --> ANY{Any passage found?}
+    H --> QP[Planning · ONE Gemini call, JSON<br/>standalone question if a follow-up<br/>+ 2 more phrasings · M14]
+    QP --> RET
+    RET[Hybrid retrieval per phrasing<br/>dense: Qdrant top-K, filter kb_id (+ document)<br/>sparse: Postgres FTS top-K<br/>fuse: Reciprocal Rank Fusion, then across phrasings]
+    RET --> VER[Version rule · M14<br/>outdated versions below current ones<br/>unless the question needs them]
+    VER --> ANY{Any passage found?}
     ANY -- no --> NF[Return 'not found in your documents'<br/>NO LLM call]
     ANY -- yes --> CB[Context construction<br/>rank order, ≤ 10 sources, token budget,<br/>wrap as numbered untrusted sources]
     CB --> GEN[Gemini generate · streamed from M13<br/>rules: sources only, cite numbers,<br/>reply exactly NOT_FOUND if they don't answer]
@@ -221,7 +218,17 @@ context → one Gemini call → `NOT_FOUND` check → citation validation → no
 searched and answered; the first question of a conversation skips this. The answer streams
 (§3.3) and the turn is saved at the end. History never enters the answer prompt (D69): the answer
 is grounded in the sources alone, and earlier answers' `[n]` can't be mistaken for this answer's
-sources. Reranking and multi-query are M14.
+sources.
+
+**Added in M14** (`services/answer_retrieval.py`, D72–D77), each technique measured on the 57
+labelled questions before its default was chosen (`evaluation/reports/2026-11-20_retrieval_*.md`):
+- **Multi-query (on):** the planning call (the M13 rewrite, extended) also writes 2 other
+  phrasings; the 3 hybrid searches are fused by RRF. With the version rule: Hit@1 72 % → 82 %,
+  MRR 0.814 → 0.881. Every question now makes this call, first questions included (user decision).
+- **Version rule (on, demote):** outdated policy versions go below current ones (§4.3).
+- **Cross-encoder reranking (off):** measured worse here (§4.4).
+- **Amendment expansion (off):** built; no measured gain (the amendment already ranks first).
+- **Document filter:** a question can be limited to one document of the knowledge base.
 
 **Why the LLM decides "not found" (D62).** The design had a score gate before the LLM. Measured on
 57 labelled questions, no score separates the 7 unanswerable ones: the best cosine threshold is
@@ -229,8 +236,9 @@ right 91 % of the time and the cross-encoder's 89 %, against 88 % for always ans
 prompt tells the model to reply exactly `NOT_FOUND`, and only an empty retrieval skips the call.
 Result: 7 of 7 unanswerable questions refused, 0–1 of 50 answerable ones refused.
 
-**Gemini call budget per question:** at most 2 calls (1 rewrite/multi-query when needed, from M13,
-and 1 answer). An unanswerable question now costs 1 call; only "retrieval found nothing" costs 0.
+**Gemini call budget per question:** 2 calls since M14 (1 planning call, which also rewrites a
+follow-up, and 1 answer); with `MULTI_QUERY_ENABLED=false`, first questions cost 1 (M13). Only
+"retrieval found nothing" skips the answer call.
 This matters because free-tier quotas are counted per project per day.
 
 ### 3.3 Streaming protocol (Server-Sent Events, built in M13)
@@ -416,20 +424,41 @@ heading-aware 400/60 chunks:
 
 Hybrid is the default. Keyword search scores well on this corpus partly because its ranking
 favours longer chunks (L50). Version confusion (an archived version ranked above the current one)
-is the largest remaining error class, which the `status = current` filter (S4) addresses in M14.
+was the largest remaining error class; M14's version rule removed it (below).
+
+**Version-aware retrieval (built in M14, `services/version_rules.py`, D73).** From each document's
+front matter: passages of a `superseded`/`archived`/`draft` version are moved below every current
+passage ("demote"; "filter" removes them), *after* ranking, so no ranker can bring them back up.
+They keep their place when the question asks about the past ("previous", "the old policy", "v2.0")
+or names a date inside that version's validity window (`effective_date`…`superseded_date`): "On 31
+December 2025…" keeps leave v2.0, which governed that date. Documents without front matter count as
+current. Measured: old version first 2 → 0 of 15, superseded Recall@5 73 % → 87 %, ~+5–25 ms.
+
+**Multi-query (built in M14, D75).** One planning call returns the standalone question and two
+other phrasings ("query-plan-v1"); each is searched in hybrid mode and the three rankings are fused
+by RRF, so a passage found by several phrasings rises. Measured with the version rule: Hit@1 82 %,
+Hit@3 96 %, MRR 0.881, ambiguous-wording Recall@5 72 % → 89 %; retrieval ~0.9 s p50 (3 searches)
+plus the planning call. Phrasings sometimes invent details (L67); fusing with the user's own
+wording keeps that from dominating.
 The top-1 cosine can't detect unanswerable questions (best threshold: 91 % correct vs 88 % for
 always answering), so M12's "not found" gate won't be a cosine threshold.
 
-### 4.4 Reranking
+### 4.4 Reranking *(built and measured in M14; off by default, D72)*
 
-- Model: **`cross-encoder/ms-marco-MiniLM-L-6-v2`** (~90 MB, CPU-friendly).
-- A **bi-encoder** (the embedding model) encodes the query and the chunk *separately*. That is fast,
-  but neither text "sees" the other. A **cross-encoder** reads `(query, chunk)` *together*. That is
-  far more accurate but too slow to run over a whole corpus. So: retrieve ~20–30 candidates cheaply,
-  rerank them precisely, and keep ~5.
-- The plan to use the rerank score as the "not enough information" threshold was dropped in M12:
-  measured, it can't separate unanswerable questions (89 % vs 88 % for always answering, D62).
-  Reranking stays a candidate for *ordering* (M14).
+- Model: **`cross-encoder/ms-marco-MiniLM-L-6-v2`** (~90 MB, CPU), `services/reranker.py`.
+- A **bi-encoder** (the embedding model) encodes the query and the chunk *separately*: fast, but
+  neither text "sees" the other. A **cross-encoder** reads `(query, chunk)` *together*: more
+  precise in general, far too slow for a whole corpus. So the plan was: retrieve 20–50 candidates
+  cheaply, rerank them, keep the best.
+- **Measured on our 57 questions, it lost:** Hit@1 72 % → 64 % and MRR 0.814 → 0.764–0.770 at
+  pools of 20, 30 and 50; amendment questions' Recall@5 49 % → 32 %; 4.1–8.6 s per question on
+  this CPU. Fusing its order with the hybrid order (RRF) still lost (70 %, 0.802, ~3 s). A
+  threshold on its score would drop relevant passages first (at −4: 17 of 88 relevant lost).
+  Likely cause: a reranker trained on English web-search queries, against policy text where the
+  keyword side of hybrid search is already strong. `RERANK_ENABLED` stays as a switch to
+  re-measure with another model (L71).
+- The M12 plan to use its score as a "not enough information" gate was dropped for the same
+  kind of reason (D62).
 
 ### 4.5 Context construction and window management
 
@@ -442,8 +471,12 @@ always answering), so M12's "not found" gate won't be a cosine threshold.
   Tokens are counted with the embedding tokenizer (`Chunk.token_count`), an approximation of
   Gemini's count (L54): measured mean prompt 3,598 Gemini tokens. Each source is labelled from
   front matter ("NX-HR-002 v3.0 · Annual Leave…") with its status and section.
-- Still planned (M14): deduplicate overlapping chunks → merge adjacent chunks from the same
-  document → optional extractive compression → fill the budget in rerank order.
+- *(M14, D76)* **Merging adjacent chunks: measured, not built.** Neighbouring chunks overlap by
+  up to 60 tokens; adjacent pairs appear in 49 of 57 questions, but they duplicate at most ~107
+  tokens per question (~4 % of a ~2.5k-token context, half the budget). **Compression and
+  ordering are deferred to M15:** they change what the model reads, not which passages are
+  retrieved, so only answer-level evaluation can show whether they help. Sources stay in rank
+  order, best first.
 - History is budgeted separately *(built in M13, `services/history.py`)*: the last
   `HISTORY_MAX_TURNS` (6) question/answer pairs, earlier answers without their `[n]` markers,
   taken newest first while they fit `HISTORY_TOKEN_BUDGET` (1,500 tokens), oldest dropped first;
@@ -1028,13 +1061,14 @@ enterprise-ai/
 │   │       ├── vector_store.py
 │   │       ├── keyword_search.py
 │   │       ├── retrieval.py
-│   │       ├── reranker.py
-│   │       ├── query_processing.py
+│   │       ├── reranker.py     # cross-encoder (M14; measured, off by default)
+│   │       ├── version_rules.py # current versions first, dates, amendments (M14)
+│   │       ├── answer_retrieval.py # multi-query, versions, rerank, amendments, filter (M14)
 │   │       ├── context_builder.py
 │   │       ├── citations.py    # validate + renumber [n] citations (M12)
 │   │       ├── answer_stream.py # NOT_FOUND gate + citations checked while streaming (M13)
 │   │       ├── llm/            # base.py, gemini.py, prompts.py (+ rewrite), rate_limiter.py (M12)
-│   │       ├── rag.py          # answer_question (M12) + stream_answer (M13)
+│   │       ├── rag.py          # answer_question (M12) + stream_answer (M13) + planning (M14)
 │   │       ├── history.py      # token-budgeted history for the rewriter (M13)
 │   │       └── conversations.py # list/read/rename/delete, save a turn (M13)
 │   ├── scripts/
@@ -1054,6 +1088,8 @@ enterprise-ai/
 │   │   ├── analysis.py         # summaries, per-type, version confusion, thresholds, latency
 │   │   ├── run_eval.py         # one config, all search variants -> report (built in M11)
 │   │   ├── compare_chunking.py # 5 chunking configs x 3 modes (built in M11)
+│   │   ├── compare_retrieval.py # M14 techniques alone and combined -> report
+│   │   ├── generate_query_variants.py # phrasings for multi-query, cached (57 calls, once)
 │   │   └── reports/            # Markdown reports (committed); raw JSON (git-ignored)
 │   └── tests/
 │       ├── conftest.py
@@ -1129,7 +1165,7 @@ The full annotated template is [`backend/.env.example`](backend/.env.example). C
 | Models | `EMBEDDING_MODEL`, `RERANKER_MODEL` |
 | Auth | `JWT_SECRET`, `JWT_EXPIRE_MINUTES` |
 | Uploads | `UPLOAD_DIR`, `MAX_UPLOAD_MB` |
-| RAG tuning | `CHUNK_SIZE_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `RETRIEVAL_TOP_K`, `RERANK_TOP_N`, `CONTEXT_TOKEN_BUDGET`, `CONTEXT_MAX_SOURCES` (M12), `HISTORY_MAX_TURNS`, `HISTORY_TOKEN_BUDGET` (M13) |
+| RAG tuning | `CHUNK_SIZE_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `RETRIEVAL_TOP_K`, `CONTEXT_TOKEN_BUDGET`, `CONTEXT_MAX_SOURCES` (M12), `HISTORY_MAX_TURNS`, `HISTORY_TOKEN_BUDGET` (M13), `RERANK_ENABLED`, `RERANK_POOL`, `RERANK_MIN_SCORE`, `VERSION_MODE`, `AMENDMENTS_ENABLED`, `MULTI_QUERY_ENABLED` (M14) |
 
 Secrets hygiene: `.env` is git-ignored. The config loader never logs secret values; it logs only
 whether each one is set. The frontend has **no secrets** and no `.env`. Its only setting is the

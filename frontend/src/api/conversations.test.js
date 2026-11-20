@@ -51,10 +51,15 @@ describe("streamAnswer", () => {
     expect(seen[2][1]).toEqual({ text: "days [1]." });
   });
 
-  it("sends a follow-up to its conversation", async () => {
+  it("sends a follow-up to its conversation, with the document filter when there is one", async () => {
     fetch.mockResolvedValue(streamed([event("done", {})]));
     await streamAnswer({ kbId: "kb", conversationId: "c1", question: "And then?", onEvent: () => {} });
     expect(fetch.mock.calls[0][0]).toBe("/api/conversations/c1/messages");
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ question: "And then?" });
+
+    fetch.mockResolvedValue(streamed([event("done", {})]));
+    await streamAnswer({ kbId: "kb", question: "Q", documentId: "d1", onEvent: () => {} });
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ question: "Q", document_id: "d1" });
   });
 
   it("rejects with the code and message of an error event", async () => {

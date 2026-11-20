@@ -69,7 +69,8 @@ def llm():
 
 @pytest.fixture
 def client(db, tmp_path, vector_store, llm):
-    settings = live_settings(upload_dir=tmp_path / "uploads")
+    # M12 behaviour: one question, one LLM call (multi-query planning is tested in M14's tests)
+    settings = live_settings(upload_dir=tmp_path / "uploads", multi_query_enabled=False)
     app = create_app(settings, warm_up=False)
     app.dependency_overrides[get_vector_store] = lambda: vector_store
     app.dependency_overrides[get_db] = lambda: db

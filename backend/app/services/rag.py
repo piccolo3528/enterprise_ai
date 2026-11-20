@@ -38,14 +38,18 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.core.errors import AppError, LLMNotConfiguredError, QuotaExhaustedError
-from app.services import conversations, retrieval
+from app.services import answer_retrieval, conversations
+from app.services.answer_retrieval import RetrievalSettings, Retrieved
 from app.services.answer_stream import CitationStream, NotFoundGate
 from app.services.citations import resolve_citations
 from app.services.context_builder import Context, Source, build_context
 from app.services.embeddings import Embedder
 from app.services.llm.base import LLMProvider, LLMResult
 from app.services.llm.prompts import (
+    MULTI_QUERY_SCHEMA,
+    MULTI_QUERY_SYSTEM_PROMPT,
     PROMPT_VERSION,
     REWRITE_MAX_OUTPUT_TOKENS,
     REWRITE_SCHEMA,
@@ -55,8 +59,10 @@ from app.services.llm.prompts import (
     build_user_prompt,
     is_not_found,
     parse_rewrite,
+    parse_search_queries,
 )
-from app.services.retrieval import SearchOutcome, SearchResult
+from app.services.reranker import Reranker, get_reranker
+from app.services.retrieval import SearchResult
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger("app.rag")
@@ -136,6 +142,37 @@ class AnswerSettings:
     max_sources: int  # CONTEXT_MAX_SOURCES
     token_budget: int  # CONTEXT_TOKEN_BUDGET
     rewrite_model: str | None = None  # GEMINI_MODEL_UTILITY; None = the answer model
+    # M14: the retrieval stages (rerank, versions, amendments); None = plain hybrid search
+    retrieval: RetrievalSettings | None = None
+    reranker: Callable[[], Reranker] | None = None  # the cross-encoder, loaded once
+    multi_query: bool = False  # extra phrasings from the planning call (MULTI_QUERY_ENABLED)
+
+    def retrieval_settings(self) -> RetrievalSettings:
+        return self.retrieval or RetrievalSettings(
+            candidates=self.candidates, pool=self.max_sources, max_sources=self.max_sources
+        )
+
+
+def answer_settings(settings: Settings) -> AnswerSettings:
+    """The answer pipeline as configured in backend/.env (shared by /ask and the chat)."""
+    rerank = settings.rerank_enabled
+    return AnswerSettings(
+        candidates=settings.retrieval_top_k,
+        max_sources=settings.context_max_sources,
+        token_budget=settings.context_token_budget,
+        rewrite_model=settings.gemini_model_utility,
+        retrieval=RetrievalSettings(
+            candidates=settings.retrieval_top_k,
+            pool=settings.rerank_pool if rerank else settings.context_max_sources,
+            max_sources=settings.context_max_sources,
+            rerank=rerank,
+            rerank_min_score=settings.rerank_min_score,
+            version_mode=settings.version_mode,
+            amendments=settings.amendments_enabled,
+        ),
+        reranker=(lambda: get_reranker(settings.reranker_model)) if rerank else None,
+        multi_query=settings.multi_query_enabled,
+    )
 
 
 def _ms(started: float) -> float:
@@ -146,12 +183,21 @@ def _ms(started: float) -> float:
 
 
 def _retrieve(db: Session, vectors, embedder, *, owner_id, kb_id, query: str,
-              settings: AnswerSettings) -> SearchOutcome:  # fmt: skip
-    return retrieval.search(
-        db, vectors, embedder,
-        owner_id=owner_id, kb_id=kb_id, query=query,
-        mode="hybrid", top_k=settings.max_sources, candidates=settings.candidates,
+              settings: AnswerSettings, extra_queries=(),
+              document_id=None) -> Retrieved:  # fmt: skip
+    return answer_retrieval.retrieve(
+        db, vectors, embedder, settings.reranker,
+        owner_id=owner_id, kb_id=kb_id, query=query, settings=settings.retrieval_settings(),
+        extra_queries=extra_queries, document_id=document_id,
     )  # fmt: skip
+
+
+def _retrieval_timings(retrieved: Retrieved) -> dict[str, float]:
+    """The retrieval stages worth keeping with the answer: the total and the optional stages."""
+    t = retrieved.timings_ms
+    out = {"retrieval": t.get("retrieval_total", 0.0)}
+    out.update({k: t[k] for k in ("rerank", "amendments") if k in t})
+    return out
 
 
 def _prepare(results: list[SearchResult], question: str,
@@ -203,14 +249,23 @@ def answer_question(
     candidates: int,
     max_sources: int,
     token_budget: int,
+    settings: AnswerSettings | None = None,
+    document_id: uuid.UUID | None = None,
 ) -> RagAnswer:
     started = time.perf_counter()
     timings: dict[str, float] = {}
-    settings = AnswerSettings(candidates, max_sources, token_budget)
+    settings = settings or AnswerSettings(candidates, max_sources, token_budget)
 
-    outcome = _retrieve(db, vectors, embedder, owner_id=owner_id, kb_id=kb_id, query=question,
-                        settings=settings)  # fmt: skip
-    timings["retrieval"] = outcome.timings_ms.get("total", 0.0)
+    extra: list[str] = []
+    if settings.multi_query:
+        t = time.perf_counter()
+        _, extra, _ = plan_queries(llm, [], question, settings)
+        timings["plan"] = _ms(t)
+    retrieved = _retrieve(db, vectors, embedder, owner_id=owner_id, kb_id=kb_id, query=question,
+                          settings=settings, extra_queries=extra,
+                          document_id=document_id)  # fmt: skip
+    outcome = retrieved.outcome
+    timings.update(_retrieval_timings(retrieved))
     # The session keeps its pooled connection until closed, even in autocommit mode (measured:
     # 1 checked out after a SELECT, 0 after close()). Release it before waiting seconds for the
     # LLM; the session would reconnect if used again.
@@ -294,6 +349,37 @@ def rewrite_question(llm: LLMProvider, history: list[tuple[str, str]], question:
     return rewritten
 
 
+def plan_queries(
+    llm: LLMProvider, history: list[tuple[str, str]], question: str, settings: AnswerSettings
+) -> tuple[str | None, list[str], bool]:
+    """Before retrieval: (standalone question or None, extra phrasings, failed?).
+
+    - multi-query on: one planning call returns both (first questions too);
+    - off: only a follow-up is rewritten (M13); a first question costs no call.
+    A failure means "search the question as written"; quota and configuration errors are
+    raised (the answer call would fail the same way)."""
+    if not settings.multi_query:
+        if not history:
+            return None, [], False
+        standalone = rewrite_question(llm, history, question, settings.rewrite_model)
+        return standalone, [], standalone is None
+    try:
+        result = llm.generate(
+            system=MULTI_QUERY_SYSTEM_PROMPT,
+            prompt=build_rewrite_prompt(history, question),
+            model=settings.rewrite_model,
+            json_schema=MULTI_QUERY_SCHEMA,
+            max_output_tokens=REWRITE_MAX_OUTPUT_TOKENS,
+        )
+    except (QuotaExhaustedError, LLMNotConfiguredError):
+        raise
+    except AppError as exc:
+        logger.warning("Query planning failed (%s): searching the question as written", exc.code)
+        return None, [], True
+    standalone, extra = parse_search_queries(result.text, max_chars=REWRITE_MAX_CHARS)
+    return standalone, extra, standalone is None and not extra
+
+
 def stream_answer(
     read_sessions: SessionFactory,
     write_sessions: SessionFactory,
@@ -304,6 +390,7 @@ def stream_answer(
     turn: Turn,
     question: str,
     settings: AnswerSettings,
+    document_id: uuid.UUID | None = None,
 ) -> Iterator[Event]:
     """Answer a question as a stream of events (§3.3), then save the turn.
 
@@ -371,21 +458,25 @@ def stream_answer(
                                    "title": conversations.title_from(question)}  # fmt: skip
 
         query = question
-        if turn.history:
-            yield "status", {"stage": "rewriting"}
+        extra: list[str] = []
+        if turn.history or settings.multi_query:
+            # "rewriting" = a follow-up being made standalone; "planning" = phrasings only
+            yield "status", {"stage": "rewriting" if turn.history else "planning"}
             t = time.perf_counter()
-            standalone = rewrite_question(llm, turn.history, question, settings.rewrite_model)
-            timings["rewrite"] = _ms(t)
-            if standalone is None:
+            standalone, extra, failed = plan_queries(llm, turn.history, question, settings)
+            timings["rewrite" if turn.history else "plan"] = _ms(t)
+            if failed and turn.history:
                 notices.append(REWRITE_FAILED)
-            elif standalone.casefold() != question.casefold():
+            elif standalone and standalone.casefold() != question.casefold():
                 rewritten = query = standalone
 
         yield "status", {"stage": "retrieving", "query": rewritten}
         with read_sessions() as db:  # closed (connection released) before the LLM call
-            outcome = _retrieve(db, vectors, embedder, owner_id=turn.owner_id,
-                                kb_id=turn.kb_id, query=query, settings=settings)  # fmt: skip
-        timings["retrieval"] = outcome.timings_ms.get("total", 0.0)
+            retrieved = _retrieve(db, vectors, embedder, owner_id=turn.owner_id,
+                                  kb_id=turn.kb_id, query=query, settings=settings,
+                                  extra_queries=extra, document_id=document_id)  # fmt: skip
+        outcome = retrieved.outcome
+        timings.update(_retrieval_timings(retrieved))
         if outcome.notice:
             notices.append(outcome.notice)
 
