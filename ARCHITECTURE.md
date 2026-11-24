@@ -1,11 +1,11 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M14 (2026-11-20).** Parts labelled
-> "implemented in M2" … "M14" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M15 (2026-11-24).** Parts labelled
+> "implemented in M2" … "M15" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
-> the local Windows binary remains a no-code-change alternative). Groq is planned as an optional
-> fallback LLM (D22). Every change is recorded in the "Decision Log" in `PROJECT_TRACKER.md`.
+> the local Windows binary remains a no-code-change alternative). Groq is the last step of the
+> LLM fallback chain (D22, built in M15, D80). Every change is recorded in the "Decision Log" in `PROJECT_TRACKER.md`.
 
 ---
 
@@ -128,11 +128,11 @@ models/ (SQLAlchemy), vector_store (Qdrant), llm client (Gemini), storage (disk)
 | `reranker` | Cross-encoder rescoring of candidate chunks. |
 | `query_processing` | Rewrites follow-up questions into standalone queries and generates multi-query variants. |
 | `context_builder` | Picks, orders, compresses and budgets chunks, and formats them as delimited, numbered sources. |
-| `llm` | Gemini client, prompt templates, streaming, retries/backoff, client-side rate limiting, error mapping. |
+| `llm` | Gemini and Groq clients, the fallback chain, prompt templates, streaming, retries/backoff, client-side rate limiting, error mapping. |
 | `rag` | Orchestrates the whole pipeline and records per-stage latency. |
 | `conversation` | Persists conversations and messages and builds token-budgeted history. |
 | `health` | Checks Neon and Qdrant concurrently (each with a 15 s timeout) for `GET /api/health`. |
-| `evaluation/` (outside `app/`) | Offline evaluation: dataset, metrics, runner, reports. |
+| `evaluation/` (outside `app/`) | Offline evaluation: dataset, retrieval metrics (M11), answer evaluation with a validated LLM judge (M15), runners, reports. |
 
 ### 2.3 API conventions (implemented in M2)
 
@@ -473,10 +473,15 @@ always answering), so M12's "not found" gate won't be a cosine threshold.
   front matter ("NX-HR-002 v3.0 · Annual Leave…") with its status and section.
 - *(M14, D76)* **Merging adjacent chunks: measured, not built.** Neighbouring chunks overlap by
   up to 60 tokens; adjacent pairs appear in 49 of 57 questions, but they duplicate at most ~107
-  tokens per question (~4 % of a ~2.5k-token context, half the budget). **Compression and
-  ordering are deferred to M15:** they change what the model reads, not which passages are
-  retrieved, so only answer-level evaluation can show whether they help. Sources stay in rank
-  order, best first.
+  tokens per question (~4 % of a ~2.5k-token context, half the budget).
+- *(M15, D78)* **Compression and ordering: built as evaluation options, measured on answers, not
+  adopted.** `build_context(order="sandwich")` puts the two best passages at the two ends (against
+  "lost in the middle"); `compress_terms` keeps each passage's header, the sentences sharing a
+  word stem with the question or its phrasings, and one neighbour either side. On the 57 questions
+  (`evaluation/reports/2026-11-23_answers_judge-v2.md`): rank order 0 false refusals and 44
+  correct; sandwich 3 false refusals, 44 correct; compression 4 false refusals, 42 correct, for
+  19 % fewer context tokens (2,508 → 2,040). Faithfulness was ~100 % in all three, so the cost
+  showed up as refusals, not invented facts. Sources stay in rank order, uncompressed.
 - History is budgeted separately *(built in M13, `services/history.py`)*: the last
   `HISTORY_MAX_TURNS` (6) question/answer pairs, earlier answers without their `[n]` markers,
   taken newest first while they fit `HISTORY_TOKEN_BUDGET` (1,500 tokens), oldest dropped first;
@@ -556,10 +561,29 @@ isn't deterministic: one question was answered in one run and refused in the nex
   - Observed 2026-11-19/20: Gemini answered 503 "This model is currently experiencing high
     demand" often, at the start and in the middle of streams; time to first token 3–13 s instead
     of ~1.5 s. The retries and the rewrite fallback kept most questions answered (L62).
-- **Privacy caveat:** on the free tier, Google states that submitted content may be used to
-  improve its products. Users must not upload confidential documents while the free tier is used.
-  The README and the UI will both say so. The `llm` service sits behind a small interface, so a
-  paid tier or a local model can be swapped in later without touching the RAG code.
+- **Fallback chain** *(built in M15, D80; `services/llm/fallback.py`, `llm/groq.py`)*. One free
+  model is a single point of failure: on 2026-11-23 the answer model's daily quota ran out
+  mid-evaluation. `build_llm()` now returns a `FallbackLLM` over up to three providers, each with
+  its own rate limiter and its own free daily quota:
+  1. `GEMINI_MODEL_ANSWER` (`gemini-3.5-flash-lite`);
+  2. `GEMINI_MODEL_FALLBACK` (`gemini-3.1-flash-lite`): same key and SDK client, a separate
+     per-model quota. `gemini-3.5-flash` was tried first and dropped: ~20–30 free calls a day and
+     10–24 s per call;
+  3. Groq `GROQ_MODEL` (`openai/gpt-oss-120b`) if `GROQ_API_KEY` is set: another company's
+     OpenAI-compatible API, called with `httpx` (no new SDK). Free tier: 1,000 requests a day but
+     8,000 tokens a minute, about one answer a minute, so it is the last resort.
+
+  It moves on for `quota_exhausted`, `llm_unavailable`, `rate_limited` and `llm_not_configured`,
+  never for `answer_blocked` (another model shouldn't overrule a safety block). A provider whose
+  daily quota ran out is skipped for 15 minutes, so later questions don't pay a failing call
+  first. A stream switches only before its first text piece: after that, the user has already
+  read part of an answer. A backup answer carries `fallback=True` and a notice naming the model.
+  The JSON calls (query plan) work on Groq through `response_format: json_object` with the schema
+  in the system prompt. Measured backup quality: README "Answer evaluation".
+- **Privacy caveat:** on the free tiers, Google and Groq may use submitted content. Users must not
+  upload confidential documents while free tiers are used; the README and the chat page say so.
+  The `llm` service sits behind a small interface, so a paid tier or a local model can be swapped
+  in later without touching the RAG code.
 
 ### 4.8 Authentication and authorization
 

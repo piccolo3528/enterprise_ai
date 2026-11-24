@@ -362,8 +362,9 @@ export default function Chat() {
 
       <p className="flex gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
         <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-slate-500" />
-        Your question and the matching passages are sent to Google Gemini on its free tier, where
-        Google may use them to improve its products. Don&apos;t use confidential documents.
+        Your question and the matching passages are sent to Google Gemini on its free tier, or to
+        Groq when Gemini is unavailable or out of its daily quota. Both may use them to improve
+        their products. Don&apos;t use confidential documents.
       </p>
 
       <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)] xl:grid-cols-[14rem_minmax(0,1fr)_20rem]">

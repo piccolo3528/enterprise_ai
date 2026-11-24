@@ -1,0 +1,271 @@
+{
+  "purpose": "Hand-labelled cases for checking the M15 answer judge before trusting it. Sources are real passages of the evaluation corpus; answers are written by hand, each with a known defect (or none). Labels are at answer level because claim splitting varies between calls.",
+  "labels": {
+    "all_supported": "every factual claim is stated by the sources (paraphrase and arithmetic allowed)",
+    "citation_ok": "every cited claim cites a source that states it (null: not what the case tests)",
+    "correctness": "acceptable verdicts against the reference answer",
+    "relevance": "does the answer address the question"
+  },
+  "sources": {
+    "AL3": {
+      "document": "NX-HR-002 v3.0 · Annual Leave and Leave Management Policy",
+      "status": "current",
+      "section": "4. Entitlements › 4.1 Annual entitlement",
+      "text": "Table 4.1 – Entitlement per leave year\n| Leave type | Entitlement | Credit method |\n|---|---|---|\n| Annual Leave | 20 working days | Accrues at 1.67 days per month, credited on the first day of each month |\n| Sick Leave | 8 working days | Credited in full on 1 January |\n| Casual Leave | 6 working days | Credited in full on 1 January |"
+    },
+    "AL2": {
+      "document": "NX-HR-002 v2.0 · Annual Leave and Leave Management Policy",
+      "status": "superseded",
+      "section": "4. Entitlements › 4.1 Annual entitlement",
+      "text": "Table 4.1 – Entitlement per leave year (version 2.0)\n| Leave type | Days per year | Credit method |\n|---|---|---|\n| Earned Leave | 18 working days | Accrues at 1.5 days per month |\n| Casual/Sick Leave | 10 working days | Credited in full on 1 January |"
+    },
+    "CF": {
+      "document": "NX-HR-002 v3.0 · Annual Leave and Leave Management Policy",
+      "status": "current",
+      "section": "6. Carry-Forward, Lapse and Encashment",
+      "text": "6.1 Carry-forward\nUp to 10 days of unused AL may be carried forward from one leave year to the next. AL above 10 days lapses on 31 December.\n6.2 Leave that does not carry forward\nSL, CL, Restricted Holidays and Compensatory Off are not carried forward and lapse on 31 December, or earlier where Section 7 says so.\n6.3 No year-end encashment\nUnused AL is not encashed at the end of the leave year."
+    },
+    "EXP": {
+      "document": "NX-FIN-002 v2.3 · Expense Reimbursement Policy",
+      "status": "current",
+      "section": "4. Submitting Claims",
+      "text": "4.2 Submission periods\n| Claim submitted | Treatment |\n|---|---|\n| Within 30 calendar days of the expense date (for travel, of the trip's return date) | Processed normally |\n| 31 to 60 calendar days after | Processed only with Department Head approval of the delay |\n| More than 60 calendar days after | Rejected |\n4.4 Payment\nClaims fully approved by the 20th of a month are paid with that month's salary. Claims approved after the 20th are paid with the following month's salary."
+    },
+    "DMG": {
+      "document": "NX-IT-003 v1.0 · IT Asset Issuance and Return Procedure",
+      "status": "current",
+      "section": "6. Damage, Loss and Theft › 6.4 Accidental damage",
+      "text": "The first accidental damage repair within 24 months is free of charge. For any further accidental damage within 24 months, the employee pays 50% of the repair cost, up to a maximum of ₹15,000 per incident. Deliberate damage is charged at the full repair cost or the recovery value, whichever is lower, and may be treated as a violation under NX-GOV-002."
+    }
+  },
+  "cases": [
+    {
+      "id": "J01",
+      "kind": "faithful and correct",
+      "question": "How many days of annual leave does an employee get each year?",
+      "sources": [
+        "AL3",
+        "AL2"
+      ],
+      "answer": "Employees get 20 working days of Annual Leave per leave year, accruing at 1.67 days per month [1].",
+      "expected": "20 working days per leave year, accruing at 1.67 days per month.",
+      "notes": "18 days comes from the superseded v2.0 and is wrong.",
+      "all_supported": true,
+      "citation_ok": true,
+      "correctness": [
+        "correct"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J02",
+      "kind": "wrong number",
+      "question": "How many days of annual leave does an employee get each year?",
+      "sources": [
+        "AL3",
+        "AL2"
+      ],
+      "answer": "Employees get 25 working days of Annual Leave per leave year [1].",
+      "expected": "20 working days per leave year, accruing at 1.67 days per month.",
+      "notes": "18 days comes from the superseded v2.0 and is wrong.",
+      "all_supported": false,
+      "citation_ok": null,
+      "correctness": [
+        "incorrect"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J03",
+      "kind": "faithful to a superseded source, so wrong",
+      "question": "How many days of annual leave does an employee get each year?",
+      "sources": [
+        "AL2",
+        "AL3"
+      ],
+      "answer": "Employees get 18 working days of Earned Leave per year, accruing at 1.5 days per month [1].",
+      "expected": "20 working days per leave year, accruing at 1.67 days per month.",
+      "notes": "18 days comes from the superseded v2.0 and is wrong.",
+      "all_supported": true,
+      "citation_ok": true,
+      "correctness": [
+        "incorrect"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J04",
+      "kind": "right fact, wrong citation",
+      "question": "How much unused annual leave can I carry forward?",
+      "sources": [
+        "AL3",
+        "CF"
+      ],
+      "answer": "You can carry forward up to 10 days of unused Annual Leave to the next leave year [1].",
+      "expected": "Up to 10 days; Annual Leave above 10 days lapses on 31 December.",
+      "notes": "Any limit other than 10 days is wrong.",
+      "all_supported": true,
+      "citation_ok": false,
+      "correctness": [
+        "correct",
+        "partial"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J05",
+      "kind": "an invented claim mixed in",
+      "question": "How much unused annual leave can I carry forward?",
+      "sources": [
+        "CF"
+      ],
+      "answer": "You can carry forward up to 10 days of unused Annual Leave [1]. Carried-forward days must be used by 31 March of the next year or they lapse [1].",
+      "expected": "Up to 10 days; Annual Leave above 10 days lapses on 31 December.",
+      "notes": "Any limit other than 10 days is wrong.",
+      "all_supported": false,
+      "citation_ok": null,
+      "correctness": [
+        "incorrect",
+        "partial"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J06",
+      "kind": "partial answer",
+      "question": "What happens if I submit an expense claim late?",
+      "sources": [
+        "EXP"
+      ],
+      "answer": "A claim submitted 31 to 60 calendar days after the expense is processed only if your Department Head approves the delay [1].",
+      "expected": "31-60 days late: processed only with Department Head approval; more than 60 days: rejected.",
+      "notes": "Both bands are needed for a full answer.",
+      "all_supported": true,
+      "citation_ok": true,
+      "correctness": [
+        "partial"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J07",
+      "kind": "off-topic but faithful",
+      "question": "When are approved expense claims paid?",
+      "sources": [
+        "EXP"
+      ],
+      "answer": "Claims submitted within 30 calendar days of the expense date are processed normally [1].",
+      "expected": "Claims fully approved by the 20th are paid with that month's salary; later approvals with the following month's.",
+      "notes": "The question is about payment timing.",
+      "all_supported": true,
+      "citation_ok": true,
+      "correctness": [
+        "incorrect"
+      ],
+      "relevance": "no"
+    },
+    {
+      "id": "J08",
+      "kind": "outside knowledge added",
+      "question": "Can I encash my unused annual leave at the end of the year?",
+      "sources": [
+        "CF"
+      ],
+      "answer": "No. Unused Annual Leave is not encashed at the end of the leave year [1]. Under Indian labour law, leave encashment is only mandatory on retirement.",
+      "expected": "No: unused Annual Leave is not encashed at year end.",
+      "notes": "Saying yes is wrong.",
+      "all_supported": false,
+      "citation_ok": null,
+      "correctness": [
+        "correct",
+        "partial"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J09",
+      "kind": "arithmetic from stated numbers",
+      "question": "I will have 14 days of unused annual leave on 31 December. How many will lapse?",
+      "sources": [
+        "CF"
+      ],
+      "answer": "4 days will lapse: you can carry forward up to 10 days, and Annual Leave above 10 days lapses on 31 December [1].",
+      "expected": "4 days lapse (14 - 10).",
+      "notes": "Only 10 days carry forward.",
+      "all_supported": true,
+      "citation_ok": true,
+      "correctness": [
+        "correct"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J10",
+      "kind": "faithful paraphrase",
+      "question": "When are approved expense claims paid?",
+      "sources": [
+        "EXP"
+      ],
+      "answer": "If your claim is fully approved by the 20th of the month, it is paid with that month's salary; if it is approved later, with the next month's salary [1].",
+      "expected": "Claims fully approved by the 20th are paid with that month's salary; later approvals with the following month's.",
+      "notes": "The question is about payment timing.",
+      "all_supported": true,
+      "citation_ok": true,
+      "correctness": [
+        "correct"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J11",
+      "kind": "a cap stated in the source is ignored",
+      "question": "My laptop needs a ₹40,000 repair for accidental damage, and it was already repaired for accidental damage 10 months ago. How much do I pay?",
+      "sources": [
+        "DMG"
+      ],
+      "answer": "This is your second accidental damage within 24 months, so you pay 50% of the repair cost: ₹20,000 [1].",
+      "expected": "₹15,000: 50% of the repair cost (₹20,000), capped at ₹15,000 per incident.",
+      "notes": "₹20,000 ignores the cap and is wrong.",
+      "all_supported": false,
+      "citation_ok": null,
+      "correctness": [
+        "incorrect"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J12",
+      "kind": "the cap applied correctly",
+      "question": "My laptop needs a ₹40,000 repair for accidental damage, and it was already repaired for accidental damage 10 months ago. How much do I pay?",
+      "sources": [
+        "DMG"
+      ],
+      "answer": "You pay ₹15,000: a second accidental damage within 24 months costs you 50% of the repair (₹20,000), but your share is capped at ₹15,000 per incident [1].",
+      "expected": "₹15,000: 50% of the repair cost (₹20,000), capped at ₹15,000 per incident.",
+      "notes": "₹20,000 ignores the cap and is wrong.",
+      "all_supported": true,
+      "citation_ok": true,
+      "correctness": [
+        "correct"
+      ],
+      "relevance": "yes"
+    },
+    {
+      "id": "J13",
+      "kind": "wrong headline, right value only in a later note (real Q025 pattern)",
+      "question": "My laptop needs a ₹40,000 repair for accidental damage, and it was already repaired for accidental damage 10 months ago. How much do I pay?",
+      "sources": [
+        "DMG"
+      ],
+      "answer": "You must pay 50% of the repair cost, which is ₹20,000 [1].\n\n(Note: the sources cap the employee's contribution at ₹15,000 per incident [1].)",
+      "expected": "₹15,000: 50% of the repair cost (₹20,000), capped at ₹15,000 per incident.",
+      "notes": "₹20,000 ignores the cap and is wrong.",
+      "all_supported": false,
+      "citation_ok": null,
+      "correctness": [
+        "incorrect"
+      ],
+      "relevance": "yes"
+    }
+  ]
+}

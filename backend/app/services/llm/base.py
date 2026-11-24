@@ -22,6 +22,7 @@ class LLMResult:
     attempts: int = 1  # 1 = no retry was needed
     # rate_limit_wait, generate; streamed calls add first_token (time to the first text)
     timings_ms: dict[str, float] = field(default_factory=dict)
+    fallback: bool = False  # answered by a backup model of the fallback chain (M15, D80)
 
 
 class LLMProvider(Protocol):

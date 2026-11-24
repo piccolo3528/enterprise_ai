@@ -23,7 +23,7 @@ class LlmInfo(BaseModel):
     api_key_configured: bool  # checked locally; the health check spends no Gemini quota
     answer_model: str
     utility_model: str
-    fallback_configured: bool  # Groq key present (D22, not wired in yet)
+    fallback_configured: bool  # a backup model is configured (Gemini backup or Groq, D80)
 
 
 class Services(BaseModel):

@@ -1,9 +1,10 @@
 """Context builder v1: which retrieved passages the LLM sees, in what order, labelled how (§4.5).
 
 v1 rules:
-- **Rank order.** Passages arrive best-first from hybrid retrieval and keep that order, so the
-  most relevant text is first. (Reordering against "lost in the middle", merging adjacent chunks
-  and compression are measured in M14.)
+- **Rank order.** Passages arrive best-first from retrieval and keep that order, so the most
+  relevant text is first. Two alternatives exist to be measured on answers (M15, D76):
+  `order="sandwich"` (best first, second-best last, against "lost in the middle") and
+  `compress_terms` (keep only the sentences sharing a word with the question, plus neighbours).
 - **At most CONTEXT_MAX_SOURCES passages** (10: M11's hybrid Hit@10 is 100 %).
 - **A token budget** (CONTEXT_TOKEN_BUDGET, 5000). A passage that doesn't fit is skipped and the
   next, smaller one may still fit. Counted with the embedding model's tokenizer (stored per
@@ -20,8 +21,9 @@ v1 rules:
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
+from typing import Literal
 
 from app.services.llm.prompts import SourceInput
 from app.services.retrieval import SearchResult
@@ -92,9 +94,75 @@ class Context:
     skipped: int  # passages left out because they didn't fit the budget
 
 
+Order = Literal["rank", "sandwich"]
+
+_WORD = re.compile(r"[a-z0-9]+")
+_STOP = frozenset(
+    "a an and any are as at be by can could do does for from get has have how i if in is it its "
+    "many may me much my of on "
+    "or our should so that the their there they this to was we what when where which who why "
+    "will with would you your".split()
+)
+_SENTENCE_END = re.compile(r"(?<=[.!?;:])\s+(?=[A-Z0-9(])")
+
+
+def query_terms(texts: Iterable[str]) -> set[str]:
+    """Content words of the question (and its phrasings), cut to 5 letters as a crude stem, so
+    "carried" matches "carry", "reimbursement" matches "reimbursed"."""
+    return {w[:5] for t in texts for w in _WORD.findall(t.lower()) if w not in _STOP and len(w) > 2}
+
+
+def compress_passage(text: str, terms: set[str], *, neighbours: int = 1) -> str:
+    """Keep the passage's first line (the context header: document › section), the units that
+    share a term with the question, and `neighbours` units on each side; "…" marks a gap. Units
+    are lines, and sentences within a line. Nothing matches → the passage is returned whole: an
+    empty source would be worse than a long one."""
+    lines = text.split("\n")
+    head, body = lines[0], lines[1:]
+    units = [u for line in body for u in (_SENTENCE_END.split(line) if line.strip() else [line])]
+    hits = [i for i, u in enumerate(units)
+            if {w[:5] for w in _WORD.findall(u.lower())} & terms]  # fmt: skip
+    if not hits:
+        return text
+    keep = {
+        j for i in hits for j in range(i - neighbours, i + neighbours + 1) if 0 <= j < len(units)
+    }
+    out, gap = [head], False
+    for i, unit in enumerate(units):
+        if i in keep:
+            out.append(unit)
+            gap = False
+        elif not gap and unit.strip():
+            out.append("…")
+            gap = True
+    return "\n".join(out)
+
+
+def _sandwich(items: list[SearchResult]) -> list[SearchResult]:
+    """1st, 3rd, 5th … then … 6th, 4th, 2nd: the two best passages at the two ends."""
+    return items[0::2] + items[1::2][::-1]
+
+
 def build_context(
-    results: Sequence[SearchResult], *, max_sources: int, token_budget: int
+    results: Sequence[SearchResult],
+    *,
+    max_sources: int,
+    token_budget: int,
+    order: Order = "rank",
+    compress_terms: set[str] | None = None,
+    tokens=None,
 ) -> Context:
+    """`compress_terms` + `tokens` (a TokenCounter): compressed passages are re-counted, so the
+    budget sees their real size."""
+    if compress_terms:
+        compressed = []
+        for r in results:
+            text = compress_passage(r.passage.text, compress_terms)
+            if text != r.passage.text:
+                count = tokens.count(text) if tokens else r.passage.token_count
+                r = replace(r, passage=replace(r.passage, text=text, token_count=count))
+            compressed.append(r)
+        results = compressed
     sources: list[Source] = []
     used = skipped = 0
     for result in results:
@@ -108,4 +176,9 @@ def build_context(
         sources.append(
             Source(len(sources) + 1, result, looks_like_injection(result.passage.text))
         )
+    if order == "sandwich" and len(sources) > 2:
+        reordered = _sandwich([s.result for s in sources])
+        by_id = {s.result.passage.chunk_id: s for s in sources}
+        sources = [replace(by_id[r.passage.chunk_id], number=i)
+                   for i, r in enumerate(reordered, start=1)]  # fmt: skip
     return Context(sources, used, skipped)

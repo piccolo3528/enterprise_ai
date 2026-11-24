@@ -87,7 +87,9 @@ async def collect_health(engine: Engine, qdrant: QdrantClient, settings: Setting
         api_key_configured=settings.gemini_api_key is not None,
         answer_model=settings.gemini_model_answer,
         utility_model=settings.gemini_model_utility,
-        fallback_configured=settings.groq_api_key is not None,
+        fallback_configured=(
+            bool(settings.gemini_model_fallback) or settings.groq_api_key is not None
+        ),
     )
     healthy = database.status == "ok" and vector_store.status == "ok" and llm.api_key_configured
     return HealthReport(

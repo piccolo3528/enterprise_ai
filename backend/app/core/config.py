@@ -61,14 +61,24 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None  # required from M12, when answers are generated
     gemini_model_answer: str = "gemini-3.5-flash-lite"
     gemini_model_utility: str = "gemini-3.5-flash-lite"
+    # Fallback chain (M15, D80): another Gemini model on the same key (its own free daily quota),
+    # then Groq. Empty = skip that step.
+    # Measured 2026-11-23: gemini-3.5-flash allowed only ~20-30 free calls a day and took
+    # 10-24 s per call; gemini-3.1-flash-lite answered in ~2 s (D80).
+    gemini_model_fallback: str | None = "gemini-3.1-flash-lite"
+    # The answer judge of evaluation/run_answers.py (D81): Groq by default, a different company
+    # and model family from the Gemini models that answer; "gemini" uses GEMINI_MODEL_JUDGE.
+    judge_provider: Literal["groq", "gemini"] = "groq"
+    gemini_model_judge: str = "gemini-3.1-flash-lite"
     gemini_rpm_limit: int = Field(default=10, ge=1)
     # Generation (M12). Low temperature: factual Q&A favours repeatable answers (§4.6).
     llm_temperature: float = Field(default=0.1, ge=0, le=2)
     llm_max_output_tokens: int = Field(default=1024, ge=64, le=8192)
     llm_timeout_seconds: float = Field(default=25, gt=0, le=120)  # per attempt
     llm_max_retries: int = Field(default=2, ge=0, le=5)  # on 429 (per-minute), 5xx, timeouts
-    groq_api_key: SecretStr | None = None  # optional fallback provider (D22), not wired in
-    groq_model: str | None = None
+    groq_api_key: SecretStr | None = None  # last step of the fallback chain (D22, wired in M15)
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_rpm_limit: int = Field(default=30, ge=1)  # free tier: 1,000/day, 8,000 tokens/minute
 
     # --- Local models -------------------------------------------------------------------
     embedding_model: str = "BAAI/bge-small-en-v1.5"

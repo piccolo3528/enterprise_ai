@@ -4,7 +4,7 @@ Upload your organisation's documents, ask questions in plain English, and get an
 **grounded in those documents, with citations** (document + page), or an explicit "I couldn't find
 this in your documents" instead of a made-up answer.
 
-> **Project status: M0–M14 done: backend and frontend skeletons, the database schema on Neon
+> **Project status: M0–M15 done: backend and frontend skeletons, the database schema on Neon
 > (Singapore), accounts, private knowledge bases with a dashboard, document upload with
 > background text extraction (PDF, DOCX, Markdown, TXT), chunking with a chunk inspector,
 > local embeddings stored in Qdrant (with safe deletes and a rebuild script), semantic,
@@ -13,7 +13,9 @@ this in your documents" instead of a made-up answer.
 > citations (7 of 7 unanswerable questions refused, 0 invalid citations), streamed into saved
 > conversations where follow-up questions ("Can they be carried forward?") are understood, and
 > retrieval improved by measurement (Hit@1 72 % → 82 %: multi-query and version-aware ranking;
-> reranking measured and not adopted). Next: answer evaluation (M15).**
+> reranking measured and not adopted), and answers measured with a validated LLM judge
+> (faithfulness 98 %, citation accuracy 99 %, 40 of 50 correct; backup models when Gemini's free
+> quota runs out). Next: settings, security hardening and UX polish (M16).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -28,8 +30,12 @@ this in your documents" instead of a made-up answer.
 - Follow-up questions that understand conversation context
 - Hybrid search (semantic + keyword) across a knowledge base
 - A transparent, hand-built RAG pipeline: chunking → local embeddings → Qdrant + PostgreSQL
-  full-text search → reciprocal rank fusion → cross-encoder reranking → Gemini
-- A built-in evaluation framework (Recall@K, Precision@K, MRR, faithfulness, latency)
+  full-text search → reciprocal rank fusion → Gemini (cross-encoder reranking was measured and
+  not adopted)
+- A built-in evaluation framework: retrieval (Hit@K, Recall@K, MRR) and answers (claim-level
+  faithfulness, citation accuracy, refusals, correctness, relevance, latency) with a validated
+  LLM judge
+- Backup models when the main model's free quota runs out
 
 ## Tech stack
 
@@ -41,7 +47,7 @@ this in your documents" instead of a made-up answer.
 | Vector DB | **Qdrant Cloud** (free tier; the local Windows binary is an alternative; no Docker) |
 | Embeddings | Sentence Transformers `BAAI/bge-small-en-v1.5` (runs locally on CPU) |
 | Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` (runs locally on CPU) |
-| LLM | Google Gemini (`gemini-3.5-flash-lite`, free tier) via the `google-genai` SDK |
+| LLM | Google Gemini (`gemini-3.5-flash-lite`, backup `gemini-3.1-flash-lite`, free tier) via the `google-genai` SDK; Groq `openai/gpt-oss-120b` (last backup, and the evaluation judge) via `httpx` |
 | Documents | PyMuPDF, python-docx |
 
 No Docker, no local PostgreSQL server, no paid services, no LangChain.
@@ -246,8 +252,17 @@ they work on your CPU. This is a one-time step; later the app loads them from th
    python -c "import secrets; print(secrets.token_urlsafe(64))"
    ```
 
-> **Privacy:** on Gemini's free tier, Google may use submitted content to improve its products.
-> Only upload documents you're comfortable sharing, such as the sample documents in this repo.
+5. *(Optional, recommended)* **Backup models.** When the answer model fails or its daily free
+   quota is used up, the app tries `GEMINI_MODEL_FALLBACK` (`gemini-3.1-flash-lite`, same key,
+   its own daily quota), then Groq. For Groq, create a free key at
+   **https://console.groq.com/keys** and put it in `backend/.env` as `GROQ_API_KEY=…`
+   (`GROQ_MODEL=openai/gpt-oss-120b`). Groq's free tier allows ~8,000 tokens a minute, about one
+   answer a minute, so it is the last resort. A backup answer says which model wrote it. Groq is
+   also the answer evaluation's judge (`JUDGE_PROVIDER=groq`).
+
+> **Privacy:** on the free tiers, Google and Groq may use submitted content to improve their
+> products. Only upload documents you're comfortable sharing, such as the sample documents in this
+> repo.
 
 ### 9. Verify everything is connected
 
@@ -384,7 +399,7 @@ frontend.
   defaults come from `backend/evaluation/reports/2026-11-20_retrieval_*.md`; without
   `GEMINI_API_KEY` the page explains that answering isn't configured.
 
-### 13. Run the tests *(verified; M14: 385 unit + 108 live backend (+4 real-Gemini), 103 frontend)*
+### 13. Run the tests *(verified; M15: 430 unit + 108 live backend (+4 real-Gemini), 103 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)
@@ -422,6 +437,23 @@ Nothing is kept: the corpus is indexed inside a database transaction that is rol
 a Qdrant collection (`chunks_eval`) that is deleted at the end. With 50 scored questions, one
 question is 2 percentage points, so differences that small are noise.
 
+### 15. Run the answer evaluation *(verified, M15)*
+
+```powershell
+# backend/, venv active; needs GEMINI_API_KEY and GROQ_API_KEY (the judge) as well
+python evaluation/validate_judge.py        # 13 hand-labelled cases: does the judge agree? (~13 min)
+python evaluation/run_answers.py           # 57 questions: answers + judgements (~30–60 min, Groq's limit)
+python evaluation/run_answers.py --variants rank sandwich compress   # the context experiments
+python evaluation/run_answers.py --answer-model gemini-fallback --phrasings evaluation/reports/2026-11-20_query_variants.json
+python evaluation/run_answers.py --rejudge evaluation/reports/<date>_answers.json   # re-grade only
+python evaluation/spot_check.py evaluation/reports/<date>_answers.json  # 10 answers to grade by hand
+```
+
+It costs about 2 Gemini calls per question (planning + answer; `--phrasings` skips planning) and
+one Groq call per judgement. Judgements are cached in `evaluation/.cache/judge.json` by the exact
+prompt, so re-running unchanged answers is free. Run one evaluation at a time: they share the
+`chunks_eval` collection. Results: [Answer evaluation](#answer-evaluation).
+
 ### Daily routine (once everything is set up)
 
 | Window | Commands |
@@ -434,9 +466,86 @@ make that first request a little slower.
 
 ---
 
+## Answer evaluation
+
+Measured on 2026-11-24 over the 57 labelled questions (22 policy documents; 50 answerable, 7
+deliberately unanswerable) with the app's own pipeline (multi-query planning, outdated versions
+ranked last, 10 sources), answered by `gemini-3.5-flash-lite` and graded by Groq
+`openai/gpt-oss-120b`. Full report, with every answer that wasn't fully right:
+[`2026-11-24_answers.md`](backend/evaluation/reports/2026-11-24_answers.md).
+
+| Measure | Result |
+|---|---|
+| Unanswerable questions refused ("I couldn't find…") | **7 of 7** |
+| False refusals (answerable, but refused) | 1 of 50 |
+| Correct / partial / incorrect, against the reference answers | **40** / 8 / 1 (of 49 answered) |
+| Faithfulness: answer claims stated by the given sources | **98 %** (161 of 165 claims) |
+| Answers with every claim supported | 46 of 49 |
+| Citation accuracy: cited claims whose citation actually supports them | **99 %** |
+| Invalid citations (numbers that point at no source) | 0 |
+| Relevance: the answer addresses the question | 96 % |
+| Answer time, p50 / p95 (planning + retrieval + answer) | 6.5 s / 32.8 s |
+
+**How it's measured.** The judge reads exactly what the answering model was given, splits the
+answer into single claims, and marks each as stated by the sources or not (and which source
+says it). It records which sources the answer cited for each claim, and grades the answer
+against the dataset's reference answer and whether it addresses the question. That is one JSON
+call per answer. Before using its numbers, the judge was checked on 13 hand-labelled cases,
+including traps: an invented claim, a superseded source, a rule applied without its cap, and a
+wrong headline with the right figure in a note. It agreed on all 13 for faithfulness,
+correctness and relevance, and on all 8 for citations
+([`2026-11-23_judge_validation.md`](backend/evaluation/reports/2026-11-23_judge_validation.md)).
+The judge is another company's model than the answerer, and its verdicts are cached by the exact
+prompt, so re-reports cost nothing.
+
+**What the misses are.**
+- The 8 partial answers are right but leave out a detail the reference expects (e.g. the
+  Level 3 escalation).
+- The incorrect answer (Q044) and the false refusal (Q054) both ask for Kochi's hotel limit. The
+  answer needs the city-tier table in another policy, which retrieval doesn't bring.
+- 4 of 165 claims weren't supported. One adds something the sources don't say ("fully remote
+  employees work remotely full-time"). One restates a fact from the question. Two say "the
+  sources don't contain this".
+
+**Latency.** Median 6.5 s: planning ~2.4 s, retrieval ~1.3 s, answer ~1.4 s, plus queueing. The
+p95 comes from slow free-tier Gemini calls that day (single planning calls up to 31 s). The run
+on 23 Nov had p95 9.1 s.
+
+**Context experiments (not adopted).** Same questions, run on 23 Nov:
+
+| Context | False refusals | Correct | Context tokens |
+|---|---|---|---|
+| Rank order (kept) | 0 of 50 | 44 | 2,508 |
+| "Sandwich" (best passages at both ends) | 3 of 50 | 44 | 2,508 |
+| Sentence compression | 4 of 50 | 42 | 2,040 |
+
+Faithfulness stayed ~100 % in all three, so the cost of reordering and compressing showed up as
+refusals, not invented facts.
+
+**Backup model.** `gemini-3.1-flash-lite` (the next step when the main model's quota runs out) was
+measured on 23 Nov:
+- 7 of 7 unanswerable questions refused, 0 false refusals, 2 questions failed on Gemini 503/504.
+- 12 answers graded so far: 9 correct, 3 partial, 100 % faithful, 100 % citation accuracy.
+- The other 36 wait for Groq's daily token budget:
+  `--rejudge evaluation/reports/2026-11-23_answers_gemini-fallback.json`.
+- Groq as the *answerer* isn't scored, because it is also the judge. Its step in the chain was
+  checked live.
+
+**Limits.**
+- An LLM judge can miss a subtle unsupported claim, and it was validated on only 13 cases.
+- Correctness depends on the reference answers.
+- Each number is a single run of a free model. One question is 2 points: the 23 Nov run had 44
+  correct and 0 false refusals, with a different judge.
+- Groq's free tier allows about 40 gradings a day (200k tokens), so a full grading takes
+  1–2 days.
+
+---
+
 ## Known limitations (summary)
 
-- Gemini's free tier: limited daily requests, and content may be used by Google. Not for confidential data.
+- Free LLM tiers (Gemini, Groq): limited daily requests, and content may be used by the provider.
+  Not for confidential data. When the answer model's quota runs out, backup models answer (with a
+  notice); when all are spent, questions fail until the next reset.
 - Every question costs two Gemini calls (planning + answer; `MULTI_QUERY_ENABLED=false` makes
   first questions cost one). The answer model sees only the
   sources, never the conversation, so questions *about* the conversation ("what did I ask
@@ -445,7 +554,6 @@ make that first request a little slower.
 - Qdrant Cloud's free cluster is suspended after 1 week unused and deleted after 4 weeks (vectors can be rebuilt from PostgreSQL).
 - Scanned PDFs (images without a text layer) aren't supported, because there is no OCR.
 - DOCX citations show the section rather than the page number.
-- Chat answers one question at a time and doesn't save conversations yet (M13).
 - PyMuPDF is AGPL-licensed.
 
 The full list with mitigations is in [PROJECT_TRACKER.md §F.5](PROJECT_TRACKER.md).

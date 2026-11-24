@@ -44,3 +44,5 @@ rag-documents/*
 backend/evaluation/reports/*.json
 # ...except the cached LLM phrasings: they reproduce the multi-query numbers without quota
 !backend/evaluation/reports/*_query_variants.json
+# The judge's cached verdicts (M15): regenerated on demand
+backend/evaluation/.cache/

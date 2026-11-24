@@ -169,6 +169,7 @@ class GeminiClient:
         max_retries: int,
         limiter: TokenBucket,
         client: Any = None,
+        shared: GeminiClient | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         jitter: Callable[[], float] = random.random,
@@ -184,6 +185,9 @@ class GeminiClient:
         self._jitter = jitter
         self._api_key = api_key
         self._client = client
+        # Another model on the same key (the fallback chain) reuses that client's SDK client:
+        # building one costs 5-6 s and holds HTTP connections (D64).
+        self._shared = shared
         self._lock = threading.Lock()
 
     def sdk(self) -> Any:
@@ -192,6 +196,8 @@ class GeminiClient:
         every app start, and every test that starts the app, 7-10 s slower. The server's
         background warm-up calls this, so the first question doesn't wait either."""
         with self._lock:
+            if self._client is None and self._shared is not None:
+                self._client = self._shared.sdk()
             if self._client is None:
                 from google import genai
                 from google.genai import types

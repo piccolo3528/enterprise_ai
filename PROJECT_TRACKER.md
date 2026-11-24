@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-20** · Current milestone: **M14 — Advanced RAG (COMPLETED)** · Next: **M15 — Evaluation Framework v2 (Answers)**
+> Last updated: **2026-11-24** · Current milestone: **M15 — Evaluation Framework v2 (Answers) (COMPLETED)** · Next: **M16 — Settings, Security Hardening & UX Polish**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -195,11 +195,11 @@ explain the concept back in your own words (or answer the related interview ques
 | 44 | Conversation memory | Persisted history fed back within a token budget | COMPLETED (M13: questions and answers saved per turn; the last `HISTORY_MAX_TURNS` (6) turns, `[n]` markers removed, trimmed oldest first to `HISTORY_TOKEN_BUDGET` (1,500); used only by the rewriter, never by the answer prompt, D69) | ☐ | `services/history.py`, `services/conversations.py` |
 | 45 | Query rewriting | Turning "and for part-timers?" into a standalone query | COMPLETED (M13: "Can they be carried forward?" → "Can annual leave days be carried forward?" in Chrome and 3/3 follow-ups in a scripted run; skipped on the first turn; failure → searched as written + a notice) | ☐ | `services/rag.py` (`rewrite_question`), `llm/prompts.py` |
 | 46 | Multi-query retrieval | Several phrasings → union of results → better recall | COMPLETED (M14, D75: one planning call writes 2 phrasings; the 3 searches are fused by RRF. With the version rule: Hit@1 72 % → 82 %, MRR 0.814 → 0.881, ambiguous-wording Recall@5 72 % → 89 %; retrieval ~0.9 s vs ~0.3 s plus the planning call; on by default, user decision) | ☐ | `services/answer_retrieval.py`, `rag.py` (`plan_queries`), `llm/prompts.py` |
-| 47 | Context compression | Keeping only the sentences relevant to the query | DEFERRED to M15 (D76): retrieval metrics can't tell whether a compressed passage still answers; it needs answer-level evaluation. Measured instead: contexts are ~2.5k embedding tokens, half the budget | ☐ | `context_builder.py` |
-| 48 | "Lost in the middle" | LLMs under-use mid-context facts; order and size matter | DEFERRED to M15 (D76): ordering is unmeasurable without answer evaluation; sources stay in rank order (best first) | ☐ | `context_builder.py` |
+| 47 | Context compression | Keeping only the sentences relevant to the query | COMPLETED (M15, D78: built (header + sentences sharing a stem with the question or its phrasings + one neighbour) and measured on answers: 19 % fewer context tokens but 4 of 50 false refusals vs 0 and 42 vs 44 correct; not adopted) | ☐ | `context_builder.py` (`compress_passage`) |
+| 48 | "Lost in the middle" | LLMs under-use mid-context facts; order and size matter | COMPLETED (M15, D78: "sandwich" order (best passages at both ends) measured on answers: 3 of 50 false refusals vs 0 in rank order, same 44 correct; with ~2.5k-token contexts there is no long middle to get lost in. Rank order kept) | ☐ | `context_builder.py` (`_sandwich`) |
 | 49 | Recall@K / Precision@K / MRR / Hit rate | Retrieval metrics against labelled relevant chunks | COMPLETED (M11: written by hand and unit-tested on hand-computed values; relevance = a chunk's text overlaps the body of an expected section in the expected version) | ☐ | `evaluation/metrics.py` |
-| 50 | Faithfulness / groundedness | Is every answer claim supported by the context? (LLM-as-judge) | NOT STARTED | ☐ | `evaluation/metrics.py` |
-| 51 | Answer relevance | Does the answer address the question? | NOT STARTED | ☐ | `evaluation/metrics.py` |
+| 50 | Faithfulness / groundedness | Is every answer claim supported by the context? (LLM-as-judge) | COMPLETED (M15, D79: claim-level judge; 98 % of 161/165 claims supported, 46 of 49 answers fully faithful, citation accuracy 99 %; judge 13/13 on hand-labelled cases) | ☐ | `evaluation/judge.py`, `evaluation/answer_metrics.py` |
+| 51 | Answer relevance | Does the answer address the question? | COMPLETED (M15: graded in the same judge call; 96 % "yes", counted over graded answers only) | ☐ | `evaluation/judge.py`, `evaluation/answer_metrics.py` |
 | 52 | Latency profiling | Per-stage timings to find bottlenecks (incl. Neon cold start) | COMPLETED (M10/M11: retrieval stages p50 after a warm-up: semantic 237 ms, keyword 174, hybrid 238. M12: retrieval, build_prompt, rate_limit_wait, generate, total: answer p50 2.26 s / p95 3.25 s without the limiter's wait; Gemini generate p50 1.49 s; retrieval 836 ms p50 when questions are spaced out (L57)) | ☐ | `services/rag.py` |
 | 53 | Cross-store consistency | Ordering writes/deletes across Neon and Qdrant to fail safely | NOT STARTED | ☐ | `ingestion/pipeline.py`, `routes/documents.py` |
 | 54 | Async I/O & thread offloading | `async` routes stay responsive; blocking clients run in threads (`asyncio.to_thread`); independent calls run concurrently (`gather`) | COMPLETED (M2: health checks in parallel ~1 s not ~1.6 s; M10: the semantic side runs in a worker thread while PostgreSQL does the ownership check + keyword query: hybrid ~250 ms vs ~355 ms sequential) | ☐ | `services/health.py`, `services/retrieval.py` |
@@ -229,6 +229,10 @@ explain the concept back in your own words (or answer the related interview ques
 | 79 | Sync code behind an async stream | Run blocking steps (SQLAlchemy, the Gemini SDK) in worker threads, one `next()` per event, from an async generator | COMPLETED (M13: `anyio.to_thread.run_sync(next, events)`; the middleware is plain ASGI, so nothing buffers the stream) | ☐ | `routes/conversations.py` |
 | 80 | Version-aware retrieval | Prefer the version in force; keep an old one only when the question asks about the past or names a date in its validity window | COMPLETED (M14, D73: outdated passages demoted after ranking; "old version first" 2 → 0 of 15, superseded Recall@5 73 % → 87 %, ~+5–25 ms) | ☐ | `services/version_rules.py` |
 | 81 | Measure, then keep or discard | Build the technique, measure it on the labelled set, and switch it off when it doesn't win, with the numbers written down | COMPLETED (M14: reranking, amendment expansion and chunk merging measured and not used; version rule and multi-query kept) | ☐ | `evaluation/compare_retrieval.py`, `reports/2026-11-20_*` |
+| 82 | Validating an LLM judge | Before trusting a judge's numbers, measure its agreement with hand labels, and fix its prompt from the cases it gets wrong | COMPLETED (M15, D79/D81: 13 labelled cases incl. traps (outdated source, ignored cap, wrong headline with the right value in a note); v1 failed J03, v2 passed every case but was lenient on real answer Q025, v3 13/13 on Gemini Flash and on Groq gpt-oss-120b) | ☐ | `evaluation/validate_judge.py`, `datasets/judge_validation.json` |
+| 83 | Provider fallback chain | Several independent free models, each with its own quota, tried in order; move on only for errors another model can fix | COMPLETED (M15, D80: quota/outage/limit/config → next; safety block → stop; spent quota skipped 15 min; streams switch only before the first piece; live-verified lite quota_exhausted → backup Gemini, and lite → Groq) | ☐ | `services/llm/fallback.py`, `llm/groq.py` |
+| 84 | Content-addressed caching | Key a cached result by a hash of everything that determines it, so a change anywhere is a miss and nothing stale is reused | COMPLETED (M15: judge verdicts keyed by sha256(judge version + model + system prompt + prompt); re-reports and re-judges of unchanged answers cost nothing) | ☐ | `evaluation/judge.py` (`JudgeCache`) |
+| 85 | Resumable batch jobs | Save progress when a long job fails, and continue from it instead of starting again | COMPLETED (M15, D82: a crashed answer run writes its rows; `--resume` re-asks only failed or missing questions and re-judges failed judgements) | ☐ | `evaluation/run_answers.py` |
 | 63 | Accessible dialogs | `role="dialog"` + `aria-modal`, focus moves in, Tab is trapped, Escape closes, focus returns to the opener | COMPLETED (M6) | ☐ | `components/ui/Modal.jsx` |
 
 ---
@@ -463,14 +467,17 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M13.
 - **Testing:** 385 unit (+17: reranker with a fake model, dates/history/version rules, amendment choice, the pipeline's stage order and fusion, planning on first questions and its fallback) · 108 live (+2: document filter incl. 404s before any LLM call, planning call on a first question) · 4 real-Gemini (planning prompt in JSON mode with an array) · 103 frontend (+2) · Chrome on the user's servers (§F.8).
 
-### M15 — Evaluation Framework v2 (Answers) · `NOT STARTED`
+### M15 — Evaluation Framework v2 (Answers) · `COMPLETED` (2026-11-24)
 - **Objective:** Measure answer quality.
 - **Tasks:**
-  - [ ] Faithfulness (LLM-as-judge, claim-level); answer relevance; refusal correctness; citation accuracy
-  - [ ] Latency percentiles; cached judge results to save quota
-- **Expected output:** final evaluation report in the README.
+  - [x] Faithfulness (LLM-as-judge, claim-level); answer relevance; refusal correctness; citation accuracy: one JSON judge call per answer (`evaluation/judge.py`, D79), aggregated in `answer_metrics.py`, run by `run_answers.py`
+  - [x] Latency percentiles (p50/p95 per stage, minus the rate limiter's wait); cached judge results (sha256 of judge version + model + prompts, D79)
+  - [x] Judge validated before use: 13 hand-labelled cases incl. traps, prompt revised twice from evidence (v1 → v3); Groq `gpt-oss-120b` judge (D81) 13/13
+  - [x] Deferred M14 experiments measured on answers: context ordering and compression, not adopted (D78)
+  - [x] Added when the answer model's quota ran out mid-run: fallback chain Gemini → Gemini backup → Groq (D80, implements D22); resumable runs (D82)
+- **Expected output:** final evaluation report in the README. **Achieved:** README "Answer evaluation" from `evaluation/reports/2026-11-24_answers.md`: unanswerable refused 7 of 7, false refusals 1 of 50, correct 40 / partial 8 / incorrect 1, faithfulness 98 % (161 of 165 claims), citation accuracy 99 %, invalid citations 0, relevance 96 %, answer time p50 6.5 s / p95 32.8 s. Backup model: 12 of 48 graded so far (9 correct, 3 partial, 100 % faithful); the rest wait for Groq's daily budget (F.10).
 - **Dependencies:** M14.
-- **Testing:** aggregation unit tests; judge validated on a few hand-labelled cases.
+- **Testing:** 430 unit (+45: judge parsing/caching/retries/patience, prompt escaping and renumbering, aggregation incl. ungraded answers, latency, sandwich/compression, phrasings, resume, report naming, fallback chain incl. streams and cooldown, Groq client errors incl. TPD and 307) · 108 live · 103 frontend · judge validation 13/13 (§F.8).
 
 ### M16 — Settings, Security Hardening & UX Polish · `NOT STARTED`
 - **Objective:** Production-quality behaviour and safety review.
@@ -532,13 +539,19 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - Advanced retrieval (M14): every question is planned into 3 phrasings searched together, outdated
   policy versions rank below current ones, and a question can be limited to one document.
   Hit@1 72 % → 82 % on the labelled set. Reranking was measured and not adopted.
-- Next: answer evaluation (M15).
+- Answer evaluation (M15): a claim-level LLM judge (validated 13/13 on hand-labelled cases)
+  grades faithfulness, citation accuracy, correctness and relevance; the final run: 7 of 7
+  unanswerable refused, 1 false refusal of 50, 40 correct / 8 partial / 1 incorrect,
+  faithfulness 98 %, citation accuracy 99 %, p50 6.5 s; results in the README. Backup models
+  answer (with a notice) when Gemini's free quota runs out: Gemini backup, then Groq.
+- Next: settings, security hardening and UX polish (M16).
 
 ### F.2 In progress
-- Nothing. M15 (answer evaluation) is next.
+- Nothing. M16 is next. Optional leftover: grading the backup-model run's last 36 answers as
+  Groq's daily budget allows (F.10).
 
 ### F.3 Remaining functionality
-- Everything in M15–M17 (M18 optional).
+- Everything in M16–M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -552,6 +565,10 @@ Each milestone is small enough to finish, test and understand in one or two sess
   transaction).
 - Seen again in M13: the backend Claude started with `--reload` logged "Reloading…" and never
   started a new worker (old code kept serving). The user's own `--reload` server reloaded fine.
+- **Open (found in M15, fix in M16):** when the model explains why it can't answer and then ends
+  with the `NOT_FOUND` marker (Q044 in `2026-11-24_answers.md`), the answer is kept and shown
+  with the literal word "NOT_FOUND" at the end, instead of the "I couldn't find…" reply. Only an
+  answer that is exactly the marker is treated as not found.
 
 ### F.5 Technical limitations & risks
 
@@ -629,6 +646,12 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L71 | Only one reranker tried (ms-marco MiniLM-L-6, English web queries, CPU) | A domain or larger reranker (e.g. bge-reranker) might rank differently | The switch and code stay (`RERANK_ENABLED`); re-measure with another model if retrieval regresses |
 | L72 | The version rule's "historical" detection is English patterns + dates | A past-tense question without those words gets current versions first | Outdated passages are demoted, not removed, so they're still in the context |
 | L73 | The document filter isn't saved with the message | A reloaded conversation doesn't show which document a question was limited to | Store it on the message if it matters |
+| L74 | The judge is an LLM, checked on only 13 hand-labelled cases | It can miss a subtle unsupported claim or grade a borderline answer differently from a person | Validated before use (13/13), prompt fixed from real failures (D79), plus 10 random judged answers saved for a human spot-check (`2026-11-24_spot_check.md`); differences of one question (2 points) treated as noise |
+| L75 | Claim splitting varies between calls | The faithfulness denominator (number of claims) changes from run to run | Verdicts are cached by prompt, so a report is reproducible; compare answers by "fully faithful", not by claim counts |
+| L76 | Correctness depends on the dataset's reference answers | Q044's reference needs a city tier from a document the answer never received; the judge marks such answers partial | Read the "answers to read" list in each report instead of trusting the headline number |
+| L77 | Groq is reached through the corporate TLS gateway, which sometimes redirects `api.groq.com` (307 to the gateway) | The chain's last step and the evaluation judge are unavailable for a while (seen twice on 2026-11-23) | A 307 is treated as "unavailable", so the chat fails cleanly with the usual error; evaluation scripts wait and resume (D82). Not bypassed (user rule) |
+| L78 | The Groq gate judges Groq's own answers (same model as the judge) | Possible self-preference: its scores may be a little generous | Stated in that report; the Gemini gates use a different company's judge |
+| L79 | One full answer evaluation costs ~114 Gemini calls (57 plans + 57 answers) and 57 Groq judgements (about one a minute on Groq's token limit, so ~1 hour per run) | Only a few runs a day fit the free quotas | `--phrasings` skips the plans, the judge cache makes re-reports free, `--resume` keeps paid-for answers |
 | L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
 
 ### F.6 Decision Log
@@ -661,7 +684,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D25 | 2026-11-06 | Evaluation dataset lives in `evaluation/datasets/`, **outside** `corpus/`; spec + index also outside | Uploading the `corpus/` folder can never ingest the answer key or the spec's facts register (which would leak answers into retrieval) | Keep the spec's `corpus/evaluation/` layout | Accepted |
 | D26 | 2026-11-06 | Commit identity uses the GitHub **noreply** email | Commits are public; keeps the personal Gmail out of history | Personal email | Accepted (changeable) |
 | D24 | 2026-11-06 | Neon runs **PostgreSQL 18.6** (project default) instead of the planned 17 | All features we need (generated columns, FTS, GIN) are present; verified by script | Recreate on 17 | Accepted |
-| D22 | 2026-11-06 | **Groq as an optional fallback LLM provider**; Gemini stays default | User request; Groq has a free tier. Kept behind the `llm` interface so the RAG code doesn't change. | xAI Grok (no standing free API tier; rejected under the no-paid-APIs rule) | Proposed: env placeholders only; integration milestone TBD |
+| D22 | 2026-11-06 | **Groq as an optional fallback LLM provider**; Gemini stays default | User request; Groq has a free tier. Kept behind the `llm` interface so the RAG code doesn't change. | xAI Grok (no standing free API tier; rejected under the no-paid-APIs rule) | **Implemented (M15, D80)**: the last step of the fallback chain, and the evaluation judge (D81) |
 | D27 | 2026-11-06 | **Open, decide in M4:** reduce the 4 round trips per pooled query. Options: (a) autocommit for read-only requests (−2 trips); (b) drop `pool_pre_ping`, rely on `pool_recycle=240` + one retry on a dropped connection (−1 trip); (c) move Neon/Qdrant to an Asia region (cheaper trips, L24) | Measured in M2: pre-ping, `BEGIN`, query and `ROLLBACK` each cost a full round trip (815 ms; 611 ms without pre-ping) | Keep as is (simplest, slowest) | **Decided 2026-11-09 (user): option (a)**, autocommit read sessions (`ReadDbSession`); writes keep full transactions. Implemented in M4; keep only if the measurement confirms |
 | D32 | 2026-11-09 | **Move Neon and Qdrant to Asia**: Neon `aws-ap-southeast-1` (Singapore; Neon's only Asia regions are Singapore and Sydney, and a region can't be changed after creation), Qdrant the nearest Asia region offered | Every round trip from India gets several times shorter; both stores still empty, so the move is cheap; a new project also replaces the exposed credentials (L25) | Keep us-east-1 | **Done (M4)**: Neon Singapore; Qdrant free tier has no AWS Asia region, so GCP Sydney (`australia-southeast1`) |
 | D33 | 2026-11-09 | Schema conventions: UUIDs generated in Python; CHECK constraints instead of ENUM types; constraint naming convention; `ON DELETE CASCADE` + `passive_deletes`; relationships `lazy="raise"`; emails stored lowercase (CHECK); no index duplicating a unique constraint's leading column | Fewer round trips (no read-back of ids, no lazy loads, no child loading on delete); migration-friendly | DB-generated ids, ENUMs, default lazy loading | Accepted (M4) |
@@ -708,6 +731,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D75 | 2026-11-20 | **Multi-query on for every question** (`MULTI_QUERY_ENABLED=true`): one planning call (the M13 rewrite prompt extended, "query-plan-v1") returns the standalone question + 2 phrasings; the 3 hybrid searches are fused by RRF | With demote: Hit@1 74 % → 82 %, MRR 0.826 → 0.881, keyword-ambiguity Recall@5 72 % → 89 %. Cost: first questions 1 → 2 Gemini calls, retrieval ~0.9 s vs ~0.3 s plus the planning call | Follow-ups only (free in the rewrite call); off | Accepted (M14, **user decision**) |
 | D76 | 2026-11-20 | **No chunk merging; compression and ordering deferred to M15** | Adjacent pairs occur in 49 of 57 questions but duplicate at most ~107 tokens per question (~4 % of ~2.5k); compression/ordering change answers, not retrieval metrics, so they need M15's answer evaluation | Build all three now, unmeasured | Accepted (M14) |
 | D77 | 2026-11-20 | **Per-document filter**: optional `document_id` on `/ask` and both chat POSTs; checked (KB yours, document in it) before the stream starts; amendment expansion skipped when filtered | A clean 404 instead of an error event; the search API already filtered by document (M10) | Filter in the UI only | Accepted (M14) |
+| D78 | 2026-11-23 | **Context ordering and compression built as options, measured on answers, not adopted**: sources stay in rank order, uncompressed (closes D76) | 57 questions, one run each (`2026-11-23_answers_judge-v2.md`): rank 0 false refusals, 44 correct; sandwich ("lost in the middle": best passages at both ends) 3 false refusals, 44 correct; sentence compression 4 false refusals, 42 correct, for 19 % fewer context tokens (2,508 → 2,040). Faithfulness ~100 % in all three: the cost is refusals, not invented facts | Adopt compression for the token saving | Accepted (M15) |
+| D79 | 2026-11-23 | **Answer judge design**: one JSON call per answer that splits it into atomic claims and marks each supported/unsupported by the given sources (with the source numbers), records the answer's citations per claim, and grades correctness against the dataset's reference and relevance; sources renumbered so the answer's `[n]` stay valid; verdicts cached by sha256(judge version + model + system prompt + prompt); validated on 13 hand-labelled cases before use; prompt revised twice from evidence (v2: J03, outdated sources still "support"; v3: Q025, a rule applied without its cap is unsupported, correctness follows the direct conclusion) | Claim-level faithfulness says *which* sentence is unsupported; one call keeps quota use at one call per answer; the cache makes re-reports free; validation tells whether the judge's numbers can be believed | Answer-level 1–5 score (vague, uncalibrated); separate calls per metric (3–4× quota); RAGAS (a framework, against D1) | Accepted (M15) |
+| D80 | 2026-11-23 | **LLM fallback chain**: answer model → `GEMINI_MODEL_FALLBACK` (`gemini-3.1-flash-lite`, same key, its own daily quota) → Groq (`openai/gpt-oss-120b`, plain `httpx`); moves on for quota, outage, per-minute limit and configuration errors, never for a safety block; a spent daily quota is skipped for 15 min; streams switch only before the first text piece; backup answers carry a notice naming the model. Implements D22 | The answer model's daily quota ran out mid-evaluation (2026-11-23): one free model is a single point of failure. `gemini-3.5-flash` was the first choice for step 2 and was dropped after measuring ~20–30 free calls a day and 10–24 s per call; 3.1-flash-lite answered in ~2 s. Groq: 1,000 requests/day but 8,000 tokens/min (~1 answer/min), so last | Gemini models only; Groq first (faster TTFT, but the tokens-per-minute limit); OpenRouter free models (shared, unpredictable limits) | Accepted (M15, **user decision**: "first Gemini; if it doesn't work, switch to the next best") |
+| D81 | 2026-11-23 | **The evaluation judge is Groq `gpt-oss-120b`** (`JUDGE_PROVIDER=groq`; `gemini` + `GEMINI_MODEL_JUDGE` as the alternative); 60 s × 3 patience for per-minute limits; replies capped at 1,500 tokens | Another company's model than the Gemini answerers (less self-preference); 1,000 judgements a day vs ~20–30 for Gemini Flash; re-validated: 13/13 on every dimension (`2026-11-23_judge_validation.md`). The reply cap keeps prompt + reply under 8k tokens/min | Gemini Flash judge (also 13/13, but its quota ran out after ~30 calls); Flash-Lite judging itself | Accepted (M15). Measured afterwards: Groq also caps **200k tokens a day** (≈ 40 judgements of ~5k tokens), reported as `quota_exhausted`; a failed grading is recorded and filled later with `--rejudge` |
+| D82 | 2026-11-23 | **Evaluation runs survive interruptions**: a crash writes the rows so far before re-raising; `--resume` asks only the missing or failed questions (an answer whose judgement failed is only re-judged) with the same phrasings; rows record their answering model; `--rejudge` keeps the run's report name | The corporate network dropped Neon and Groq connections together 8 questions into a run; the index lives in one uncommitted transaction, so a run can't continue in place, and every answer already paid for was lost | Commit the evaluation index (leaves data behind, against D59); rerun from scratch (wastes quota) | Accepted (M15) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -819,6 +847,13 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-20 | M14 | `compare_retrieval.py`, 6 more variants | ✔ report | Fused rerank 70 % / 0.802 (still worse); **multi-query + demote 82 % / 0.881 / 0 of 15, p50 911 ms** |
 | 2026-11-20 | M14 | `ruff` / `pytest` / `-m live` / `-m gemini` | ✔ / 385 / 108 / 4 passed | Unit +17, live +2; the M12/M13 live fixtures pin multi-query off (they test one call per first question) and a new test turns it on |
 | 2026-11-20 | M14 | `npm test` / `npm run build` (PowerShell) | ✔ 103 / ✔ | +2: "Search in" lists ready documents and sends `documentId`, the turn says "Searched in … only"; request body with/without `document_id`. Build main 391.7 kB + Chat 143.1 kB |
+| 2026-11-23 | M15 | `validate_judge.py` (13 hand-labelled cases) | ✔ 13/13 | Gemini Flash judge: v1 failed J03 (outdated source), v2 13/13 but lenient on real answer Q025, v3 13/13. Groq `gpt-oss-120b` (judge-v3): faithfulness 13/13, citations 8/8, correctness 13/13, relevance 13/13 |
+| 2026-11-23 | M15 | `run_answers.py --variants rank sandwich compress` | ✔ report | `2026-11-23_answers_judge-v2.md`: rank 0 false refusals / 44 correct; sandwich 3 / 44; compress 4 / 42 with 19 % fewer tokens; faithfulness ~100 % in all → D78 |
+| 2026-11-23 | M15 | Fallback chain, live | ✔ | Main model's quota spent → `gemini-3.1-flash-lite` answered with the notice; lite → Groq verified. `gemini-3.5-flash` measured ~20–30 free calls a day, 10–24 s each: dropped from the chain |
+| 2026-11-23 | M15 | Backup-model gate (`--answer-model gemini-fallback`) | ⚠ partly graded | First attempt crashed after 8 questions (network dropped Neon + Groq together) → D82 resume. 57 answers: 7 of 7 refused, 0 false refusals, 2 Gemini 503/504; 12 graded (9 correct, 3 partial, 100 % faithful), 36 wait for Groq's daily token limit (200k TPD, found from the 429 text) |
+| 2026-11-24 | M15 | Final `run_answers.py` (primary, live planning) | ✔ | 29 min; `2026-11-24_answers.md`: 7/7 refused, 1/50 false refusal (Q054), 40/8/1, faithfulness 98 % (161/165), 46 of 49 fully faithful, citation accuracy 99 %, 0 invalid, relevance 96 %, p50 6.5 s / p95 32.8 s (Gemini planning calls up to 31 s that day). Q057's grading hit Groq's TPD; re-graded about 30 min later (correct). Found: relevance % counted ungraded answers (fixed, test), `--rejudge` wrote under today's date (fixed, test), the `NOT_FOUND` text bug (F.4) |
+| 2026-11-24 | M15 | `ruff` / `pytest` / `-m live` | ✔ / 430 / 108 passed | Unit +45 over M14; live 7 min 21 s; Qdrant left with `chunks` only |
+| 2026-11-24 | M15 | `npm test` / `npm run build` (PowerShell) | ✔ 103 / ✔ | First run: 3 passed + 11 environment errors while the evaluation and pytest loaded the laptop; re-run 103/103. Build main 391.7 kB + Chat 143.2 kB |
 | 2026-11-20 | M14 | Chrome on the user's servers, throwaway account (4 policies) | ✔ | First question: "Preparing the search…" 5.1 s (planning), retrieval 1.2 s, first token after 4.6 s, 10.8 s total; answer leads with v3.0 (20 days), v2.0 mentioned as superseded. "Search in: NX-HR-003 v2.0" + follow-up: "Searched in … only", 3 sources all from that policy, 4.5 s. Cleanup: 258 chunks = 258 points |
 | 2026-11-13 | M10 | Keyword query design, measured read-only on the user's "HR Policies" (74 chunks) | ℹ decided | AND (`websearch_to_tsquery`): 0 rows for "How many days of annual leave can I carry forward to next year?", "Can I work from another country?", "What happens if I get sick during my holiday?"; OR + `ts_rank_cd`: results, but "Leave Year and Leave Types" 1st for "carry forward leave"; coverage-first: both carry-forward sections 1st–3rd, §6.1 from 4th to 2nd on the long question; all ~60 ms (D55) |
 | 2026-11-13 | M10 | `retrieval.search` on the user's KB, 4 questions × 3 modes (read-only) | ✔ | "carry forward leave": all three modes → §10.1 Carried-forward balances, §6 Carry-Forward (v3.0), §6 (v2.0). "Can I work from another country?": semantic 1st = archived v1.0 "Working from Home", hybrid 1st = current v2.0 "Work From Anywhere" (semantic #2 + keyword #4). "Sick during my holiday": still weak in every mode (L41). Timings: semantic ~245 ms (embed 30, Qdrant 150, passages 60, scope check overlapped), keyword ~177 ms, hybrid 248–308 ms (~355 sequential) |
@@ -873,6 +908,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **M12:** google-genai (installed in M1) now used; frontend react-markdown 10.1.0 (0 vulnerabilities). New settings `LLM_TEMPERATURE` (0.1), `LLM_MAX_OUTPUT_TOKENS` (1024), `LLM_TIMEOUT_SECONDS` (25), `LLM_MAX_RETRIES` (2), `CONTEXT_MAX_SOURCES` (10). New pytest marker `gemini` (opt-in, 3 real calls). A unit run takes 2–4 min on this laptop.
 **M13:** no new dependencies. New settings `HISTORY_MAX_TURNS` (6), `HISTORY_TOKEN_BUDGET` (1500). Migration `0927000418b6` (message `outcome`/`notices`/`prompt_version`) on `production` and `test`. `pytest -m gemini` is now 4 tests, 6 calls.
 **M14:** no new dependencies (the cross-encoder was installed in M1). Settings: `RERANK_ENABLED` (false), `RERANK_POOL` (20), `RERANK_MIN_SCORE`, `VERSION_MODE` (demote), `AMENDMENTS_ENABLED` (false), `MULTI_QUERY_ENABLED` (true); `RERANK_TOP_N` removed. Experiments: `compare_retrieval.py` ~40 min for 12 variants (reranking dominates), `generate_query_variants.py` 57 calls ~9 min. `pytest -m gemini`: 4 tests, 10 calls.
+**M15:** no new dependencies (Groq through `httpx`, installed in M2). Settings: `GEMINI_MODEL_FALLBACK` (`gemini-3.1-flash-lite`), `JUDGE_PROVIDER` (groq), `GEMINI_MODEL_JUDGE`, `GROQ_MODEL` (`openai/gpt-oss-120b`), `GROQ_RPM_LIMIT` (30); `GROQ_API_KEY` in `.env`. Measured free limits: Gemini per model, reset 13:30 IST (flash-lite ~500 a day; 3.5-flash only ~20–30 and 10–24 s a call); Groq gpt-oss-120b 30 RPM, 1,000 RPD, 8k TPM, **200k tokens a day (rolling)** ≈ 40 judgements. `run_answers.py` ~30 min for 57 questions (Groq's TPM is the pace). Judge cache `evaluation/.cache/judge.json` (git-ignored).
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -1007,11 +1043,21 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   trade-off (multi-query doubles calls for +8 points Hit@1); a unit test caught an instrument bug
   (timings never reached the caller) before it could fake "0 ms" in the report; when an
   experiment overwrites its own report, copy the first one before re-running.
+- **M15:** validate the instrument before reading its numbers: the judge failed a hand-labelled
+  trap (an outdated source "doesn't support" a claim) and was lenient on a real answer (Q025's
+  ignored cap) until its prompt was fixed from those cases (13/13 after); measure on answers
+  what retrieval metrics can't see (sandwich ordering and compression looked harmless in
+  retrieval and cost 3–4 false refusals); a free tier has several limits and the one that bites
+  is the one you didn't read (Groq: 1,000 requests a day, but 200k tokens a day ≈ 40
+  judgements); a long batch job on a flaky network must save and resume, and a cache keyed by
+  the exact input makes re-runs free; a report's denominators lie quietly (ungraded answers
+  counted as "not relevant": 25 % instead of 100 %); a single run of a free model varies
+  (Q044/Q054 partial yesterday, incorrect/refused today), so a one-question difference is noise.
 
 ### F.10 Next recommended action
-1. Start **M15 — Evaluation Framework v2 (Answers)**: faithfulness (claim-level LLM-as-judge), answer relevance, refusal correctness and citation accuracy on the 57 questions with the M14 pipeline; then the deferred context experiments (compression, ordering, D76) measured on answers, and the M14 trade-offs on version questions (L70).
-2. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
-3. Record your Gemini rate limits from AI Studio in §F.9 / `GEMINI_RPM_LIMIT` (every question now costs 2 calls).
+1. Start **M16 — Settings, Security Hardening & UX Polish** (settings page, per-user API rate limits, the security checklist, dashboard stats and loading/empty/error states, responsive check). Include the `NOT_FOUND` text fix (§F.4).
+2. Optional, when Groq's daily budget allows (~40 judgements a day): finish grading the backup-model run, `python evaluation/run_answers.py --rejudge evaluation/reports/2026-11-23_answers_gemini-fallback.json` (36 answers left, about one day of budget), and hand-grade the 10 answers in `evaluation/reports/2026-11-24_spot_check.md`.
+3. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
 
 ### F.10b Target (set by the user, 2026-11-10)
 **Finish M7–M17 by Sunday 15 November 2026**, at the user's own pace (no external deadline). That
@@ -1074,7 +1120,7 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 9 | How do you handle prompt injection in retrieved documents? | In Notion (M12) |
 | 10 | How do you guarantee one user can't retrieve another user's documents? | In Notion (M9) |
 | 11 | Define Recall@K, Precision@K and MRR. How did you measure retrieval? | In Notion (M11) |
-| 12 | How do you measure faithfulness? Limits of LLM-as-judge? | After M15 |
+| 12 | How do you measure faithfulness? Limits of LLM-as-judge? | In Notion (M15) |
 | 13 | The context window is 1M tokens, so why not send everything? | In Notion (M14) |
 | 14 | How do follow-up questions work? | In Notion (M13) |
 | 15 | How do you handle LLM rate limits and outages? | In Notion (M12) |
@@ -1198,8 +1244,8 @@ Each has a unit test asserting that a known fake secret does *not* appear in the
 | Working backend (all endpoints, OpenAPI docs) | NOT STARTED | |
 | Database integration (Neon + migrations, Qdrant) | NOT STARTED | |
 | Complete RAG pipeline with citations and "not found" handling | IN PROGRESS | M12: validated citations, LLM-decided "not found" (57 questions, Chrome); M13: streamed, saved, follow-ups rewritten (Chrome, scripted); reranking/multi-query in M14 |
-| Advanced retrieval (hybrid, rerank, rewrite, multi-query, compression) | COMPLETED (compression deferred to M15) | M10 hybrid, M13 rewrite, M14 multi-query + version rule kept, reranking measured and not adopted (reports 2026-11-20) |
-| Evaluation (retrieval + answer metrics, report) | NOT STARTED | |
+| Advanced retrieval (hybrid, rerank, rewrite, multi-query, compression) | COMPLETED (compression and ordering measured on answers in M15, not adopted, D78) | M10 hybrid, M13 rewrite, M14 multi-query + version rule kept, reranking measured and not adopted (reports 2026-11-20) |
+| Evaluation (retrieval + answer metrics, report) | COMPLETED | M11 retrieval (`run_eval.py`), M14 techniques, M15 answers (`run_answers.py`, judge validated 13/13); results in the README |
 | Security checks (authz matrix, uploads, injection, secrets, Qdrant localhost) | NOT STARTED | |
 | Error handling (API + UI states, LLM failures, rate limits, Neon cold start) | NOT STARTED | |
 | Runs on Windows without Docker, following the README only | NOT STARTED | |

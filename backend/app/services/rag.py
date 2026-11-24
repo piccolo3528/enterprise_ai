@@ -44,7 +44,7 @@ from app.services import answer_retrieval, conversations
 from app.services.answer_retrieval import RetrievalSettings, Retrieved
 from app.services.answer_stream import CitationStream, NotFoundGate
 from app.services.citations import resolve_citations
-from app.services.context_builder import Context, Source, build_context
+from app.services.context_builder import Context, Order, Source, build_context, query_terms
 from app.services.embeddings import Embedder
 from app.services.llm.base import LLMProvider, LLMResult
 from app.services.llm.prompts import (
@@ -82,6 +82,14 @@ REWRITE_FAILED = (
     "interpret it. If the answer misses the point, ask the full question."
 )
 UNEXPECTED = "Something went wrong on our side. Please try again."
+
+
+def fallback_notice(model: str) -> str:
+    """Shown on an answer written by a backup model of the fallback chain (D80)."""
+    return (
+        f"Answered by a backup model ({model}) because the main model is unavailable or has used "
+        "up its daily free quota. Its answers were checked less thoroughly."
+    )
 REWRITE_MAX_CHARS = 1000  # the question length limit
 
 SessionFactory = Callable[[], AbstractContextManager[Session]]
@@ -134,6 +142,9 @@ class RagAnswer:
     invalid_citations: int = 0
     prompt_version: str = PROMPT_VERSION
     timings_ms: dict[str, float] = field(default_factory=dict)
+    # Every passage in the prompt, in prompt order (the evaluation's judge needs exactly these)
+    sources: list[Source] = field(default_factory=list)
+    extra_queries: list[str] = field(default_factory=list)  # multi-query phrasings searched
 
 
 @dataclass(frozen=True)
@@ -146,6 +157,11 @@ class AnswerSettings:
     retrieval: RetrievalSettings | None = None
     reranker: Callable[[], Reranker] | None = None  # the cross-encoder, loaded once
     multi_query: bool = False  # extra phrasings from the planning call (MULTI_QUERY_ENABLED)
+    # Context experiments (M15, D76): passage order, and extractive compression (needs `tokens`,
+    # a TokenCounter, to re-count compressed passages against the budget)
+    context_order: Order = "rank"
+    compress: bool = False
+    tokens: object | None = None
 
     def retrieval_settings(self) -> RetrievalSettings:
         return self.retrieval or RetrievalSettings(
@@ -200,10 +216,14 @@ def _retrieval_timings(retrieved: Retrieved) -> dict[str, float]:
     return out
 
 
-def _prepare(results: list[SearchResult], question: str,
-             settings: AnswerSettings) -> tuple[Context, str]:  # fmt: skip
-    context = build_context(results, max_sources=settings.max_sources,
-                            token_budget=settings.token_budget)  # fmt: skip
+def _prepare(results: list[SearchResult], question: str, settings: AnswerSettings,
+             extra_queries=()) -> tuple[Context, str]:  # fmt: skip
+    context = build_context(
+        results, max_sources=settings.max_sources, token_budget=settings.token_budget,
+        order=settings.context_order,
+        compress_terms=query_terms([question, *extra_queries]) if settings.compress else None,
+        tokens=settings.tokens,
+    )  # fmt: skip
     prompt = build_user_prompt(question, [s.prompt_input() for s in context.sources])
     flagged = [s for s in context.sources if s.flagged]
     if flagged:
@@ -251,13 +271,16 @@ def answer_question(
     token_budget: int,
     settings: AnswerSettings | None = None,
     document_id: uuid.UUID | None = None,
+    extra_queries: list[str] | None = None,
 ) -> RagAnswer:
+    """`extra_queries`: phrasings to search instead of making the planning call (evaluation runs
+    reuse one set of phrasings across variants, so only the variant differs)."""
     started = time.perf_counter()
     timings: dict[str, float] = {}
     settings = settings or AnswerSettings(candidates, max_sources, token_budget)
 
-    extra: list[str] = []
-    if settings.multi_query:
+    extra: list[str] = list(extra_queries or [])
+    if settings.multi_query and extra_queries is None:
         t = time.perf_counter()
         _, extra, _ = plan_queries(llm, [], question, settings)
         timings["plan"] = _ms(t)
@@ -275,14 +298,17 @@ def answer_question(
     if not outcome.results:
         timings["total"] = _ms(started)
         _log("Answer", question, 0, 0, True, 0, 0, None, timings)
-        return RagAnswer(NOT_FOUND_ANSWER, True, notices=notices, timings_ms=timings)
+        return RagAnswer(NOT_FOUND_ANSWER, True, notices=notices, timings_ms=timings,
+                         extra_queries=extra)  # fmt: skip
 
     t = time.perf_counter()
-    context, prompt = _prepare(outcome.results, question, settings)
+    context, prompt = _prepare(outcome.results, question, settings, extra)
     timings["build_prompt"] = _ms(t)
 
     result = llm.generate(system=SYSTEM_PROMPT, prompt=prompt)
     timings.update(result.timings_ms)
+    if result.fallback:
+        notices.append(fallback_notice(result.model))
     answer = RagAnswer(
         answer="",
         not_found=False,
@@ -292,6 +318,8 @@ def answer_question(
         output_tokens=result.output_tokens,
         sources_given=len(context.sources),
         timings_ms=timings,
+        sources=list(context.sources),
+        extra_queries=extra,
     )
 
     if is_not_found(result.text):
@@ -488,7 +516,7 @@ def stream_answer(
             return
 
         t = time.perf_counter()
-        context, prompt = _prepare(outcome.results, query, settings)
+        context, prompt = _prepare(outcome.results, query, settings, extra)
         timings["build_prompt"] = _ms(t)
 
         yield "status", {"stage": "generating"}
@@ -510,6 +538,8 @@ def stream_answer(
         if result is None:
             raise RuntimeError("The LLM stream ended without its result")
         timings.update(result.timings_ms)
+        if result.fallback:
+            notices.append(fallback_notice(result.model))
 
         if gate.state == "not_found":
             message_id = save(NOT_FOUND_ANSWER, "not_found", [])

@@ -147,11 +147,12 @@ def get_vector_store(request: Request) -> VectorStore:
 
 
 def get_llm(request: Request) -> LLMProvider:
-    """The answer model built at startup; None means GEMINI_API_KEY isn't set."""
+    """The answer model (with its fallback chain) built at startup; None means no LLM key."""
     llm = request.app.state.llm
     if llm is None:
         raise LLMNotConfiguredError(
-            "AI answers aren't set up on this server: GEMINI_API_KEY is missing in backend/.env."
+            "AI answers aren't set up on this server: set GEMINI_API_KEY (or GROQ_API_KEY) in "
+            "backend/.env."
         )
     return llm
 
