@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Link, useSearchParams } from "react-router";
 
 import { listDocuments } from "../api/documents";
+import { ALL_KBS, DEFAULT_TO_ALL, isAll } from "../api/scope";
 import { SEARCH_MODES, searchKnowledgeBase } from "../api/search";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
@@ -68,12 +69,13 @@ function ResultCard({ kbId, mode, result, position }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
         <span className="font-mono font-semibold text-slate-700">{position}.</span>
         <Link
-          to={`/knowledge-bases/${kbId}/documents/${result.document_id}`}
+          to={`/knowledge-bases/${result.kb_id ?? kbId}/documents/${result.document_id}`}
           className="font-semibold text-indigo-600 hover:text-indigo-500"
         >
           {title}
         </Link>
         {result.doc_code && <span className="break-all">{result.filename}</span>}
+        {isAll(kbId) && result.kb_name && <span>· {result.kb_name}</span>}
         {outdated && <StatusBadge tone="warning">{result.doc_status}</StatusBadge>}
         <span className="ml-auto">
           <ScoreLine mode={mode} result={result} />
@@ -145,7 +147,10 @@ export default function Search() {
 
   const requestedKb = params.get("kb");
   const kbId =
-    knowledgeBases?.find((kb) => kb.id === requestedKb)?.id ?? knowledgeBases?.[0]?.id ?? null;
+    isAll(requestedKb)
+      ? ALL_KBS // every knowledge base you have (M16b)
+      : (knowledgeBases?.find((kb) => kb.id === requestedKb)?.id ??
+        (knowledgeBases?.length ? (DEFAULT_TO_ALL ? ALL_KBS : knowledgeBases[0].id) : null));
   const query = params.get("q") ?? "";
   // Defaults from Settings (M16); a mode in the URL (a bookmarked search) still wins.
   const preferences = useAuth().user?.preferences;
@@ -278,6 +283,7 @@ export default function Search() {
               onChange={(e) => update({ kb: e.target.value, doc: "" })}
               className={selectClass}
             >
+              <option value={ALL_KBS}>All knowledge bases</option>
               {knowledgeBases.map((kb) => (
                 <option key={kb.id} value={kb.id}>
                   {kb.name}
@@ -298,6 +304,7 @@ export default function Search() {
                   {d.metadata?.document_id
                     ? `${d.metadata.document_id}${d.metadata.version ? ` v${d.metadata.version}` : ""} · ${d.original_filename}`
                     : d.original_filename}
+                  {d.kb_name && ` (${d.kb_name})`}
                 </option>
               ))}
             </select>

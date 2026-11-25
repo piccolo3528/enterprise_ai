@@ -203,14 +203,17 @@ class VectorStore:
         vector: list[float],
         *,
         owner_id: uuid.UUID,
-        kb_id: uuid.UUID,
+        kb_id: uuid.UUID | None,
         limit: int,
         document_id: uuid.UUID | None = None,
     ) -> list[SearchHit]:
-        """Nearest chunks within ONE knowledge base of ONE owner. The caller has already checked
-        in PostgreSQL that `owner_id` owns `kb_id`; the owner filter is a second lock on the door.
-        """
-        conditions = [_match("owner_id", owner_id), _match("kb_id", kb_id)]
+        """Nearest chunks of ONE owner, within one knowledge base or (`kb_id=None`, M16b) all of
+        theirs. The caller has already checked in PostgreSQL that `owner_id` owns `kb_id`; the
+        owner filter is a second lock on the door, and the only one when searching everything
+        (every point carries its owner; the payload index makes it a filter, not a scan)."""
+        conditions = [_match("owner_id", owner_id)]
+        if kb_id is not None:
+            conditions.append(_match("kb_id", kb_id))
         if document_id:
             conditions.append(_match("document_id", document_id))
         response = self.client.query_points(

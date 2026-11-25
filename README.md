@@ -16,8 +16,10 @@ this in your documents" instead of a made-up answer.
 > reranking measured and not adopted), and answers measured with a validated LLM judge
 > (faithfulness 98 %, citation accuracy 99 %, 40 of 50 correct; backup models when Gemini's free
 > quota runs out), and a Settings page with per-user limits, "sign out everywhere" and a
-> security checklist where every item is a test (authorization on all 28 routes, headers,
-> secrets kept out of logs). Next: documentation and GitHub readiness (M17).**
+> security checklist where every item is a test (authorization on all 31 routes, headers,
+> secrets kept out of logs); and questions across all your knowledge bases by default, measured
+> no worse than selecting the right one (Hit@1 82 % vs 78–80 %). Next: documentation and GitHub
+> readiness (M17).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -41,6 +43,9 @@ this in your documents" instead of a made-up answer.
 - A Settings page: your name, password, search and chat defaults, "sign out everywhere", system
   status with database storage, and a privacy notice about the free AI tiers
 - Abuse limits per user (questions, uploads, sign-in attempts) and a tested security checklist
+- Ask or search across all your knowledge bases at once (the default), or pick one
+- When no answer is found, the passages that came closest are listed to check (none for
+  off-topic questions)
 
 ## Tech stack
 
@@ -404,7 +409,7 @@ frontend.
   defaults come from `backend/evaluation/reports/2026-11-20_retrieval_*.md`; without
   `GEMINI_API_KEY` the page explains that answering isn't configured.
 
-### 13. Run the tests *(verified; M16: 587 unit + 124 live backend (+4 real-Gemini), 116 frontend)*
+### 13. Run the tests *(verified; M16b: 605 unit + 129 live backend (+4 real-Gemini), 122 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)
@@ -433,6 +438,8 @@ python evaluation/compare_chunking.py      # ~7 min: 5 chunking configs x 3 sear
 # M14: reranking, version rule, amendments, multi-query (uses the cached phrasings; no Gemini calls)
 python evaluation/compare_retrieval.py --multi-query evaluation/reports/2026-11-20_query_variants.json
 python evaluation/generate_query_variants.py   # only to regenerate the phrasings: 57 Gemini calls
+# M16b: all knowledge bases vs the right one (5 KBs by folder; cached phrasings; ~150 s)
+python evaluation/compare_scope.py --multi-query evaluation/reports/2026-11-20_query_variants.json
 ```
 
 `compare_retrieval.py` takes ~40 min, mostly the cross-encoder on CPU (`--only "<variant>" …` runs a

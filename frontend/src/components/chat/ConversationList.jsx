@@ -99,7 +99,7 @@ export default function ConversationList({
         </div>
       )}
       {conversations?.length === 0 && (
-        <p className="px-1 text-xs text-slate-500">Your conversations about this knowledge base appear here.</p>
+        <p className="px-1 text-xs text-slate-500">Your conversations in this view appear here.</p>
       )}
 
       {conversations?.length > 0 && (

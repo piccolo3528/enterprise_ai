@@ -100,6 +100,12 @@ class KeepOpen:
 
 @pytest.fixture
 def client(db, tmp_path, vector_store, llm):
+    yield from streaming_client(db, tmp_path, vector_store, llm)
+
+
+def streaming_client(db, tmp_path, vector_store, llm):
+    """The app with the test session, the test collection and `llm`; shared with
+    test_all_scope_api.py (M16b), whose fixtures call it."""
     # M13 behaviour by default (no planning call on first questions); M14's test turns it on
     settings = live_settings(upload_dir=tmp_path / "uploads", multi_query_enabled=False)
     app = create_app(settings, warm_up=False)
@@ -208,6 +214,23 @@ def test_nothing_retrieved_is_saved_as_not_found_without_an_llm_call(client, ali
     [conversation] = client.get(f"/api/knowledge-bases/{kb_id}/conversations").json()["items"]
     answer = client.get(f"/api/conversations/{conversation['id']}").json()["messages"][1]
     assert (answer["outcome"], answer["content"]) == ("not_found", rag.NOT_FOUND_ANSWER)
+
+
+def test_a_not_found_answer_sends_and_saves_the_closest_passages(client, alice, llm):
+    # M16b, D93: real bge-small scores. The leave passage is close to the question (above the
+    # 0.58 floor) but the model finds no answer in it; it's offered as related, not cited.
+    kb_id = library(client, alice, {"leave.txt": LEAVE, "expenses.txt": EXPENSES})
+    llm.cite = "a phrase in no passage"  # the fake replies NOT_FOUND
+    events = start(client, kb_id)
+    assert names(events)[-3:] == ["citations", "related", "done"]
+    related = dict(events)["related"]
+    assert related[0]["filename"] == "leave.txt" and related[0]["number"] == 1
+    assert events[-1][1]["related_count"] == len(related) and events[-1][1]["citation_count"] == 0
+
+    conversation_id = events[0][1]["id"]
+    answer = client.get(f"/api/conversations/{conversation_id}").json()["messages"][1]
+    assert (answer["outcome"], answer["citations"]) == ("not_found", [])
+    assert [r["chunk_id"] for r in answer["related"]] == [r["chunk_id"] for r in related]
 
 
 def test_a_failed_first_answer_leaves_no_conversation(client, alice, llm, db):

@@ -27,7 +27,7 @@ class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    kb_id: uuid.UUID
+    kb_id: uuid.UUID | None  # None: asks across all your knowledge bases (M16b)
     title: str
     created_at: datetime
     updated_at: datetime
@@ -47,6 +47,7 @@ class MessageOut(BaseModel):
     rewritten_query: str | None  # questions: the standalone version that was searched
     outcome: str | None  # answers: answered | not_found | stopped
     citations: list[CitationOut]  # answers: the cited passages as they were shown
+    related: list[CitationOut] = []  # "not found" answers: the closest passages (M16b)
     notices: list[str]
     model: str | None
     latency_ms: dict[str, Any]

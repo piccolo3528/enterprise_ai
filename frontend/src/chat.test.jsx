@@ -147,6 +147,35 @@ describe("chat page", () => {
     await waitFor(() => expect(listConversations).toHaveBeenCalledWith(FIN.id, expect.anything()));
   });
 
+  it("asks across all knowledge bases by default, with sources naming their knowledge base", async () => {
+    // M16b, D91: measured no worse than selecting the right knowledge base (2026-11-25_scope.md).
+    const across = [citation(1, { kb_id: FIN.id, kb_name: "Finance" })];
+    streamAnswer.mockImplementation(plays(events({ citations: across, answer: "Ten days [1]." })));
+    renderApp("/chat");
+    const picker = await screen.findByRole("combobox", { name: "Knowledge base" });
+    expect(picker).toHaveValue("all");
+    await waitFor(() => expect(listConversations).toHaveBeenCalledWith("all", expect.anything()));
+    expect(screen.getByRole("combobox", { name: "Search in" })).toHaveTextContent(
+      "All documents in all knowledge bases",
+    );
+    await ask("How many days?");
+    expect(streamAnswer).toHaveBeenCalledWith(expect.objectContaining({ kbId: "all" }));
+    const panel = await screen.findByRole("complementary", { name: "Sources" });
+    await waitFor(() => expect(panel).toHaveTextContent("Finance"));
+    expect(within(panel).getByRole("link", { name: "Open document" })).toHaveAttribute(
+      "href",
+      `/knowledge-bases/${FIN.id}/documents/d1`,
+    );
+  });
+
+  it("opens a saved all-knowledge-base conversation on 'All knowledge bases'", async () => {
+    getConversation.mockResolvedValue({ ...SAVED, kb_id: null, messages: [] });
+    renderApp(`/chat?kb=${HR.id}&c=${SAVED.id}`);
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Knowledge base" })).toHaveValue("all"),
+    );
+  });
+
   it("asks without extra phrasings when the user turned them off in Settings", async () => {
     getMe.mockResolvedValue({ ...TEST_USER, preferences: { ...TEST_USER.preferences, chat_multi_query: false } });
     renderApp("/chat");
@@ -156,7 +185,7 @@ describe("chat page", () => {
 
   it("streams the answer, then shows citation chips, the meta line and the sources", async () => {
     listConversations.mockResolvedValueOnce([]).mockResolvedValue([NEW]);
-    renderApp("/chat");
+    renderApp(`/chat?kb=${HR.id}`);
     await ask("How much leave can I carry forward?");
 
     expect(streamAnswer).toHaveBeenCalledWith(
@@ -210,7 +239,7 @@ describe("chat page", () => {
   });
 
   it("sends a follow-up to the same conversation and shows what was searched", async () => {
-    renderApp("/chat");
+    renderApp(`/chat?kb=${HR.id}`);
     const user = await ask("How much leave can I carry forward?");
     await screen.findByText(/2 sources cited/);
 
@@ -299,15 +328,62 @@ describe("chat page", () => {
 
   it("shows a not-found answer without sources", async () => {
     streamAnswer.mockImplementation(
-      plays(events({ notFound: true, answer: "I couldn't find the answer to that in this knowledge base's documents." })),
+      plays(events({ notFound: true, answer: "I couldn't find the answer to that in your documents." })),
     );
     renderApp("/chat");
     await ask("Can I bring my dog?");
     expect(await screen.findByText(/couldn't find the answer/)).toBeInTheDocument();
     expect(screen.queryByRole("article", { name: "Answer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Related passages" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Sources" })).toHaveTextContent(
       "The sources an answer cites appear here",
     );
+  });
+
+  it("shows a saved not-found answer with its related passages", async () => {
+    getConversation.mockResolvedValue({
+      ...SAVED,
+      messages: [
+        { id: "u1", role: "user", content: "Laptop replacement?", rewritten_query: null, outcome: null,
+          citations: [], related: [], notices: [], model: null, latency_ms: {}, created_at: "2026-11-25T10:00:00Z" },
+        { id: "a1", role: "assistant", content: "I couldn't find the answer to that in your documents.",
+          rewritten_query: null, outcome: "not_found", citations: [],
+          related: [citation(1, { doc_code: "NX-IT-003", section: "4. Issuance" })],
+          notices: [], model: "gemini-3.5-flash-lite", latency_ms: { total: 1900 }, created_at: "2026-11-25T10:00:01Z" },
+      ],
+    });
+    renderApp(`/chat?kb=${HR.id}&c=${SAVED.id}`);
+    const list = await screen.findByRole("list", { name: "Related passages" });
+    expect(list).toHaveTextContent("NX-IT-003 v3.0 · 4. Issuance");
+    expect(screen.getByRole("heading", { name: "Related passages" })).toBeInTheDocument();
+  });
+
+  it("offers the closest passages of a not-found answer, opening one in the panel (M16b)", async () => {
+    const related = [
+      citation(1, { doc_code: "NX-IT-003", doc_version: "1.0", section: "4. Issuance", kb_name: "IT",
+        text: "Laptops are replaced every four years, or earlier if not economically repairable." }),
+      citation(2, { doc_code: "NX-IT-003", doc_version: "1.0", section: "7. Return of Equipment", kb_name: "IT",
+        text: "Hand equipment in at the IT counter of your base office." }),
+    ];
+    const script = events({ notFound: true, answer: "I couldn't find the answer to that in your documents." });
+    script.splice(script.length - 1, 0, ["related", related]);
+    streamAnswer.mockImplementation(plays(script));
+    renderApp("/chat");
+    const user = userEvent.setup();
+    await ask("If my laptop breaks, how long until it's replaced, and where?", user);
+
+    const list = await screen.findByRole("list", { name: "Related passages" });
+    expect(within(list).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "1NX-IT-003 v1.0 · 4. Issuance · IT",
+      "2NX-IT-003 v1.0 · 7. Return of Equipment · IT",
+    ]);
+    const panel = screen.getByRole("complementary", { name: "Sources" });
+    expect(within(panel).getByRole("heading", { name: "Related passages" })).toBeInTheDocument();
+    expect(panel).toHaveTextContent("No answer was found in these");
+
+    await user.click(within(list).getAllByRole("button")[1]);
+    expect(within(panel).getByText(/IT counter of your base office/)).toBeInTheDocument();
+    expect(within(list).getAllByRole("button")[1]).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows the model's explanation of a not-found answer with the sources it cites", async () => {
@@ -379,7 +455,7 @@ describe("chat page", () => {
       onEvent("token", { text: "Employees get 20 days" });
       throw new ApiError({ code: "llm_unavailable", message: "The AI service isn't responding right now." });
     });
-    renderApp("/chat");
+    renderApp(`/chat?kb=${HR.id}`);
     const user = await ask("How many days of leave?");
     const alert = await screen.findByRole("alert");
     expect(screen.queryByRole("article", { name: "Answer" })).not.toBeInTheDocument(); // partial dropped

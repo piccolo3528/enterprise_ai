@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { isAll } from "./scope";
 
 export const SEARCH_MODES = ["hybrid", "semantic", "keyword"];
 
@@ -15,8 +16,8 @@ export async function searchKnowledgeBase(
   const body = { query, mode, top_k: topK };
   if (documentId) body.document_id = documentId;
   if (minScore != null) body.min_score = minScore;
-  const { data } = await api.post(`/knowledge-bases/${encodeURIComponent(kbId)}/search`, body, {
-    signal,
-  });
+  // ALL_KBS: every knowledge base you have (M16b); each result names its knowledge base
+  const url = isAll(kbId) ? "/search" : `/knowledge-bases/${encodeURIComponent(kbId)}/search`;
+  const { data } = await api.post(url, body, { signal });
   return data;
 }

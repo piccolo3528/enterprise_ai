@@ -64,18 +64,21 @@ def _ms(started: float) -> float:
 
 
 def _amendment_documents(
-    db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID
+    db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID | None
 ) -> list[tuple[uuid.UUID, dict]]:
-    """(id, front matter) of the KB's ready documents that amend another one. One query."""
+    """(id, front matter) of the KB's (or, with None, all the owner's) ready documents that
+    amend another one. One query."""
+    conditions = [
+        KnowledgeBase.owner_id == owner_id,
+        Document.status == "ready",
+        Document.doc_metadata["amends"].as_string().is_not(None),
+    ]
+    if kb_id is not None:
+        conditions.append(Document.kb_id == kb_id)
     rows = db.execute(
         select(Document.id, Document.doc_metadata)
         .join(KnowledgeBase, KnowledgeBase.id == Document.kb_id)
-        .where(
-            Document.kb_id == kb_id,
-            KnowledgeBase.owner_id == owner_id,
-            Document.status == "ready",
-            Document.doc_metadata["amends"].as_string().is_not(None),
-        )
+        .where(*conditions)
     ).all()
     return [(row[0], row[1] or {}) for row in rows]
 
@@ -87,7 +90,7 @@ def retrieve(
     reranker: Callable[[], Reranker] | None,
     *,
     owner_id: uuid.UUID,
-    kb_id: uuid.UUID,
+    kb_id: uuid.UUID | None,
     query: str,
     settings: RetrievalSettings,
     extra_queries: Sequence[str] = (),

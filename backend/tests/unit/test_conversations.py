@@ -40,7 +40,7 @@ from app.services.llm.prompts import (
 )
 from app.services.retrieval import SearchOutcome
 from tests.helpers import FAKE_JWT_SECRET
-from tests.unit.test_answering import client_with, google_error, passage, results
+from tests.unit.test_answering import client_with, google_error, passage, results, scored
 
 # --- streaming filters: exact equality with the batch rules --------------------------------------
 
@@ -490,6 +490,23 @@ def test_a_not_found_reply_streams_no_tokens(streamed):
     out = streamed["run"](llm=llm)
     assert "token" not in names(out)
     assert out[-1][1]["not_found"] is True and streamed["saved"][0]["answer"].outcome == "not_found"
+    # no semantic scores here, so no passage counts as close: no `related` event
+    assert "related" not in names(out) and streamed["saved"][0]["answer"].related == []
+
+
+def test_a_not_found_reply_sends_and_saves_the_closest_passages(streamed):
+    # M16b, D93: the laptop question's case: on topic, but the model found no answer.
+    streamed["outcome"] = SearchOutcome("hybrid", scored(0.64, 0.50, 0.61),
+                                        timings_ms={"total": 1.0})  # fmt: skip
+    out = streamed["run"](llm=StreamLLM(streamed["events"], pieces=("NOT_FOUND",)))
+    assert names(out)[-3:] == ["citations", "related", "done"]
+    related = dict(out)["related"]
+    assert [(r["number"], r["chunk_id"]) for r in related] == [
+        (1, str(uuid.UUID(int=1))), (2, str(uuid.UUID(int=3)))
+    ]
+    assert dict(out)["citations"] == [] and out[-1][1]["related_count"] == 2
+    saved = streamed["saved"][0]["answer"]
+    assert saved.related == related and saved.citations == []
 
 
 def test_an_explanation_ending_in_not_found_is_shown_and_saved_as_not_found(streamed):

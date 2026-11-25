@@ -34,6 +34,8 @@ def _to_out(result: SearchResult) -> SearchResultOut:
         keyword_rank=result.keyword_rank,
         keyword_score=result.keyword_score,
         keyword_matched=result.keyword_matched,
+        kb_id=p.kb_id,
+        kb_name=p.kb_name,
     )
 
 
@@ -48,6 +50,23 @@ def search_knowledge_base(
 ):
     """Semantic, keyword or hybrid search. 404 for a knowledge base (or document) that isn't
     yours; 503 if semantic search is asked for while the vector database is unreachable."""
+    return _search(body, user_id, kb_id, db, settings, vectors)
+
+
+@router.post("/search", response_model=SearchResponse)
+def search_all_knowledge_bases(
+    body: SearchRequest,
+    user_id: CurrentUserId,
+    db: ReadDbSession,
+    settings: SettingsDep,
+    vectors: VectorStoreDep,
+):
+    """The same search across every knowledge base you have (M16b); each result names its
+    knowledge base. `document_id` may name a document in any of them."""
+    return _search(body, user_id, None, db, settings, vectors)
+
+
+def _search(body: SearchRequest, user_id, kb_id, db, settings, vectors) -> SearchResponse:
     outcome = retrieval.search(
         db,
         vectors,

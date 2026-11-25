@@ -1,4 +1,6 @@
 import { api } from "./client";
+import { listKnowledgeBases } from "./knowledgeBases";
+import { isAll } from "./scope";
 
 // Must match the backend (app/services/ingestion/validation.py and MAX_UPLOAD_MB). The browser
 // checks first for instant feedback; the server checks again and has the final word.
@@ -6,10 +8,27 @@ export const ALLOWED_EXTENSIONS = ["pdf", "docx", "md", "txt"];
 export const MAX_UPLOAD_MB = 20;
 
 export async function listDocuments(kbId, { signal } = {}) {
+  if (isAll(kbId)) return listAllDocuments({ signal });
   const { data } = await api.get(`/knowledge-bases/${encodeURIComponent(kbId)}/documents`, {
     signal,
   });
   return data.items;
+}
+
+/**
+ * Every document of every knowledge base, each tagged with `kb_name` (M16b: the document filter
+ * of "All knowledge bases"). One request per knowledge base, in parallel: fine for the handful a
+ * person has; a cross-KB documents endpoint would be the upgrade.
+ */
+async function listAllDocuments({ signal } = {}) {
+  const knowledgeBases = await listKnowledgeBases({ signal });
+  const lists = await Promise.all(
+    knowledgeBases.map(async (kb) => {
+      const items = await listDocuments(kb.id, { signal });
+      return items.map((d) => ({ ...d, kb_name: kb.name }));
+    }),
+  );
+  return lists.flat();
 }
 
 /**

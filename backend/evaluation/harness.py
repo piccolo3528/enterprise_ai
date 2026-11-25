@@ -136,7 +136,7 @@ class ChunkingConfig:
 class Index:
     config: ChunkingConfig
     owner_id: uuid.UUID
-    kb_id: uuid.UUID
+    kb_id: uuid.UUID | None  # None when split by folder (M16b): one KB per folder
     units: dict[uuid.UUID, frozenset[str]] = field(default_factory=dict)
     tokens: dict[uuid.UUID, int] = field(default_factory=dict)
     version_of: dict[uuid.UUID, str] = field(default_factory=dict)  # chunk -> "NX-HR-002 v3.0"
@@ -145,6 +145,9 @@ class Index:
     # all vectors (exact): small collections stay below Qdrant's indexing threshold.
     hnsw_indexed: int | None = None
     seconds: dict[str, float] = field(default_factory=dict)
+    # M16b, split_by_folder: knowledge base per folder, and the folder of each document code
+    kb_of_folder: dict[str, uuid.UUID] = field(default_factory=dict)
+    folder_of_document: dict[str, str] = field(default_factory=dict)  # "NX-HR-002" -> "hr"
 
     @property
     def chunk_count(self) -> int:
@@ -158,8 +161,12 @@ def build_index(
     tokens: TokenCounter,
     config: ChunkingConfig,
     corpus_dir: Path = CORPUS_DIR,
+    *,
+    split_by_folder: bool = False,
 ) -> Index:
-    """Chunk, store (uncommitted) and embed every corpus document into a fresh collection."""
+    """Chunk, store (uncommitted) and embed every corpus document into a fresh collection.
+    `split_by_folder` (M16b): one knowledge base per top-level folder (finance, hr, ...) of the
+    same owner, instead of one for everything."""
     started = time.perf_counter()
     owner = User(email=f"eval-{uuid.uuid4().hex[:12]}@example.invalid", password_hash="x",
                  full_name="Evaluation")  # fmt: skip
@@ -168,7 +175,14 @@ def build_index(
     kb = KnowledgeBase(owner_id=owner.id, name=f"Evaluation corpus ({config.name})")
     db.add(kb)
     db.flush()
-    index = Index(config=config, owner_id=owner.id, kb_id=kb.id)
+    index = Index(config=config, owner_id=owner.id, kb_id=None if split_by_folder else kb.id)
+    if split_by_folder:
+        for folder in sorted({path.relative_to(corpus_dir).parts[0]
+                              for path in corpus_dir.rglob("*.md")}):  # fmt: skip
+            folder_kb = KnowledgeBase(owner_id=owner.id, name=f"Evaluation {folder}")
+            db.add(folder_kb)
+            db.flush()
+            index.kb_of_folder[folder] = folder_kb.id
 
     all_rows: list[dict] = []
     metadata_of: dict[uuid.UUID, dict] = {}
@@ -182,9 +196,12 @@ def build_index(
         )  # fmt: skip
         assembled = assemble(extraction.blocks)
         data = path.read_bytes()
+        folder = path.relative_to(corpus_dir).parts[0]
+        index.folder_of_document[meta["document_id"]] = folder
+        doc_kb = index.kb_of_folder[folder] if split_by_folder else kb.id
         document = Document(
             id=uuid.uuid4(),
-            kb_id=kb.id,
+            kb_id=doc_kb,
             original_filename=path.name,
             stored_path=f"evaluation/{path.name}",
             file_type="md",
@@ -196,7 +213,7 @@ def build_index(
             processed_at=datetime.now(UTC),
         )
         db.add(document)
-        rows = chunk_rows(drafts, document.id, kb.id)
+        rows = chunk_rows(drafts, document.id, doc_kb)
         for row, draft in zip(rows, drafts, strict=True):
             if not config.header:
                 row["text"] = assembled.text[draft.start : draft.end]

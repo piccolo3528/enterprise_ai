@@ -1,6 +1,6 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M16 (2026-11-25).** Parts labelled
+> Status: **v0.2 approved 2026-11-06; implemented through M16b (2026-11-25).** Parts labelled
 > "implemented in M2" … "M16" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
@@ -249,7 +249,8 @@ This matters because free-tier quotas are counted per project per day.
 
 ### 3.3 Streaming protocol (Server-Sent Events, built in M13)
 
-`POST /api/knowledge-bases/{kb_id}/conversations` (a first question; creates the conversation) and
+`POST /api/knowledge-bases/{kb_id}/conversations` (a first question; creates the conversation),
+`POST /api/conversations` (the same across all knowledge bases, M16b) and
 `POST /api/conversations/{id}/messages` (a follow-up) return `text/event-stream`. Each event is
 `event: <name>` + one `data: <JSON>` line:
 
@@ -258,8 +259,9 @@ This matters because free-tier quotas are counted per project per day.
 | `conversation` | `{"id", "title"}`: first question only, sent first, so the page can name it in the URL |
 | `status` | `{"stage": "rewriting"}`, `{"stage": "retrieving", "query": <standalone question or null>}`, `{"stage": "generating"}` |
 | `token` | `{"text": "..."}` (repeated): already checked, see below |
-| `citations` | `[{number, chunk_id, document_id, filename, doc_code, doc_version, doc_status, doc_title, section, page_start, page_end, text, flagged}]` |
-| `done` | `{message_id, conversation_id, answer, not_found, notices, model, prompt_tokens, output_tokens, sources_given, invalid_citations, prompt_version, rewritten_query, citation_count, timings_ms}` |
+| `citations` | `[{number, chunk_id, document_id, filename, doc_code, doc_version, doc_status, doc_title, section, page_start, page_end, text, flagged, kb_id, kb_name}]` (`kb_*` since M16b) |
+| `related` | Same shape, numbered 1..3: only on a "not found" that cites nothing, when some passage it was given has a semantic score ≥ 0.58 (M16b, D93). Not citations: shown as "Related passages" |
+| `done` | `{message_id, conversation_id, answer, not_found, notices, model, prompt_tokens, output_tokens, sources_given, invalid_citations, prompt_version, rewritten_query, citation_count, related_count, timings_ms}` |
 | `error` | `{"code": "rate_limited" \| "quota_exhausted" \| "llm_unavailable" \| "answer_blocked" \| "not_found" \| "internal_error", "message", "retry_after"?}`, instead of `citations`/`done` |
 
 Everything that can be checked before the answer starts (session, input, ownership, LLM
@@ -374,7 +376,8 @@ it gives up after 120 s without any event (not a total timeout, so long answers 
 
 ### 4.3 Hybrid retrieval
 
-- **Dense (semantic)**: Qdrant cosine search filtered by `kb_id` (and optionally `document_id`), top-K.
+- **Scope (M16b, D91/D92)**: one knowledge base, or every knowledge base of the owner (`kb_id=None`, the default in the UI). Both stores always filter by owner; the KB condition is added only when one is selected. Measured: all KBs Hit@1 82 % vs 78–80 % for the right KB (`2026-11-25_scope.md`).
+- **Dense (semantic)**: Qdrant cosine search filtered by `owner_id` and, when one is selected, `kb_id` (and optionally `document_id`), top-K.
 - **Sparse (keyword)**: a PostgreSQL generated column
   `search_vector tsvector GENERATED ALWAYS AS (to_tsvector('english', text)) STORED` with a GIN index,
   queried with `websearch_to_tsquery` and ranked with `ts_rank_cd`. It catches exact terms that
@@ -918,7 +921,7 @@ sections, versions, statuses and amendments.
 
 | Area | What the app does | Evidence (tests) |
 |---|---|---|
-| Authorization on every route | Each route is classified public / self / owned in one table; the test reads the app's own route list (OpenAPI) and fails on an unclassified route (D90). Non-public routes: no cookie, a garbage token, an expired token, a token signed with another key → 401. Owned routes: a malformed id → 404; another user's real ids → 404, identical to "missing", without reaching the LLM or Qdrant | `unit/test_security_checklist.py` (28 routes × 3 cookie cases, 18 malformed-id cases); `integration/test_authz_matrix.py` (18 owned routes cross-user, fakes that fail if touched). Found `/ask` calling Gemini before the ownership check (D89) |
+| Authorization on every route | Each route is classified public / self / owned in one table; the test reads the app's own route list (OpenAPI) and fails on an unclassified route (D90). Non-public routes: no cookie, a garbage token, an expired token, a token signed with another key → 401. Owned routes: a malformed id → 404; another user's real ids → 404, identical to "missing", without reaching the LLM or Qdrant | `unit/test_security_checklist.py` (31 routes since M16b × 3 cookie cases, 18 malformed-id cases); `integration/test_authz_matrix.py` (18 owned routes cross-user, fakes that fail if touched). Found `/ask` calling Gemini before the ownership check (D89) |
 | Sessions | `HttpOnly; Secure; SameSite=Strict; Path=/api` JWT cookie, HS256 only; `token_version` in every token: a password change or "sign out everywhere" ends all sessions (D84) | `integration/test_auth_api.py` (cookie flags), `integration/test_settings_api.py` (old token refused in-process and after a restart), `unit/test_sessions.py` |
 | Abuse limits | Per user: 10 questions/min, 150/24 h, 20 uploads/h; failed sign-ins 5 per email and 20 per address per 15 min (checked before the password); 5 registrations/h per address; 429 + `Retry-After` (D83) | `unit/test_rate_limit.py` (window maths, every limited route answers 429 before database/LLM work), `integration/test_auth_api.py` (real lock-out) |
 | Upload abuse | §4.9: size before reading, extension + magic bytes, zip bomb (declared ≤ 200 MB, ≤ 5,000 entries: a forged declared size can't bypass it, because Python's `zipfile` stops at the declared size), PDF ≤ 1,000 pages, server-side file names, nothing left behind on refusal | `unit/test_ingestion.py`, `integration/test_documents_api.py`, `unit/test_security_checklist.py` (forged-size zip: 50 MB in 49 KB claiming 1 KB → refused as damaged) |
@@ -953,7 +956,7 @@ erDiagram
     users ||--o{ knowledge_bases : owns
     users ||--o{ conversations : has
     knowledge_bases ||--o{ documents : contains
-    knowledge_bases ||--o{ conversations : scopes
+    knowledge_bases |o--o{ conversations : "scopes (nullable since M16b)"
     documents ||--o{ chunks : split_into
     conversations ||--o{ messages : contains
 
@@ -1017,6 +1020,7 @@ erDiagram
         text content
         text rewritten_query "questions: what was searched (M13)"
         jsonb citations "snapshot of the cited passages"
+        jsonb related "not found: closest passages, not cited (M16b)"
         jsonb notices "M13"
         string outcome "answered|not_found|stopped (M13)"
         string prompt_version "M13"

@@ -67,6 +67,8 @@ class SearchResultOut(BaseModel):
     keyword_rank: int | None
     keyword_score: float | None
     keyword_matched: int | None
+    kb_id: uuid.UUID | None = None  # M16b: where the passage came from
+    kb_name: str | None = None
 
 
 class SearchResponse(BaseModel):

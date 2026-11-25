@@ -68,7 +68,15 @@ from app.services.vector_store import VectorStore
 
 logger = logging.getLogger("app.rag")
 
-NOT_FOUND_ANSWER = "I couldn't find the answer to that in this knowledge base's documents."
+# Scope-neutral (M16b): a question may span one knowledge base or all of them.
+NOT_FOUND_ANSWER = "I couldn't find the answer to that in your documents."
+# Related passages on a "not found" (M16b, D93): at most this many of the passages the model was
+# given, each with a semantic (cosine) score at or above the floor. Measured with bge-small on
+# the evaluation corpus: the best of the top 3 was 0.607-0.794 for the 57 on-topic questions
+# (answerable or not) and 0.451-0.545 for off-topic ones, so a floor of 0.58 shows passages for
+# a near miss and nothing for "who won the 1999 Premier League". Model-specific (L93).
+RELATED_MAX = 3
+RELATED_MIN_SEMANTIC = 0.58
 NO_CITATIONS = (
     "This answer doesn't cite any of your documents, so it may not come from them. Check it "
     "before relying on it."
@@ -127,6 +135,9 @@ class Citation:
             "page_end": p.page_end,
             "text": p.text,
             "flagged": self.flagged,
+            # M16b: which knowledge base, when a question spans all (and where "Open" goes)
+            "kb_id": str(p.kb_id) if p.kb_id else None,
+            "kb_name": p.kb_name,
         }
 
 
@@ -146,6 +157,7 @@ class RagAnswer:
     # Every passage in the prompt, in prompt order (the evaluation's judge needs exactly these)
     sources: list[Source] = field(default_factory=list)
     extra_queries: list[str] = field(default_factory=list)  # multi-query phrasings searched
+    related: list[Citation] = field(default_factory=list)  # not found: closest passages (M16b)
 
 
 @dataclass(frozen=True)
@@ -245,6 +257,18 @@ def _cited(context: Context, order: list[int]) -> list[Citation]:
     ]
 
 
+def related_passages(context: Context) -> list[Citation]:
+    """For a "not found" answer that cites nothing: the passages the model was given that came
+    closest, numbered 1..n, closest first. Not citations: the reply doesn't rest on them. A
+    keyword-only match (no semantic score, e.g. semantic search unavailable) isn't shown."""
+    ranked = sorted(
+        (s for s in context.sources
+         if (s.result.semantic_score or 0.0) >= RELATED_MIN_SEMANTIC),
+        key=lambda s: -(s.result.semantic_score or 0.0),
+    )[:RELATED_MAX]  # fmt: skip
+    return [Citation(n, s.result, s.flagged) for n, s in enumerate(ranked, start=1)]
+
+
 def _answer_notices(
     citations: list[Citation], finish_reason: str | None, *, refusal: bool = False
 ) -> list[str]:
@@ -336,6 +360,8 @@ def answer_question(
         answer.invalid_citations = resolved.invalid
         answer.citations = _cited(context, resolved.order)
         notices.extend(_answer_notices(answer.citations, result.finish_reason, refusal=explained))
+    if answer.not_found and not answer.citations:
+        answer.related = related_passages(context)
 
     timings["total"] = _ms(started)
     _log("Answer", question, len(context.sources), sum(s.flagged for s in context.sources),
@@ -352,7 +378,7 @@ class Turn:
     """Where a streamed answer belongs."""
 
     owner_id: uuid.UUID
-    kb_id: uuid.UUID
+    kb_id: uuid.UUID | None  # None: across all the owner's knowledge bases (M16b)
     conversation_id: uuid.UUID
     new: bool  # the first question: the conversation is created when the turn is saved
     history: list[tuple[str, str]]  # selected earlier messages, oldest first; [] when new
@@ -429,7 +455,8 @@ def stream_answer(
     """Answer a question as a stream of events (§3.3), then save the turn.
 
     Events: `conversation` (first question only: its new id and title), `status` (rewriting,
-    retrieving, generating), `token` (text, already citation-checked), `citations`, `done`; or
+    retrieving, generating), `token` (text, already citation-checked), `citations`, `related`
+    (only on a "not found" that cites nothing, when some passage came close: M16b), `done`; or
     `error` instead of the rest. Nothing is saved after an error. If the reader goes away while
     the answer is being written (the Stop button), the text already shown is saved as a
     "stopped" answer: closing this generator raises GeneratorExit at the pending `yield`.
@@ -444,13 +471,15 @@ def stream_answer(
     cites: CitationStream | None = None
     result: LLMResult | None = None
 
-    def save(content: str, outcome: str, citations: list[Citation]) -> uuid.UUID:
+    def save(content: str, outcome: str, citations: list[Citation],
+             related: list[Citation] = ()) -> uuid.UUID:  # fmt: skip
         nonlocal saved
         timings["total"] = _ms(started)
         record = conversations.AnswerRecord(
             content=content,
             outcome=outcome,
             citations=[c.snapshot() for c in citations],
+            related=[c.snapshot() for c in related],
             notices=list(notices),
             model=result.model if result else None,
             prompt_tokens=result.prompt_tokens if result else None,
@@ -467,8 +496,8 @@ def stream_answer(
         saved = True
         return message_id
 
-    def done(message_id: uuid.UUID, answer: str, not_found: bool,
-             citations: list[Citation]) -> dict[str, Any]:  # fmt: skip
+    def done(message_id: uuid.UUID, answer: str, not_found: bool, citations: list[Citation],
+             related: list[Citation] = ()) -> dict[str, Any]:  # fmt: skip
         return {
             "message_id": str(message_id),
             "conversation_id": str(turn.conversation_id),
@@ -483,6 +512,7 @@ def stream_answer(
             "prompt_version": PROMPT_VERSION,
             "rewritten_query": rewritten,
             "citation_count": len(citations),
+            "related_count": len(related),
             "timings_ms": timings,
         }
 
@@ -548,20 +578,27 @@ def stream_answer(
         if result.fallback:
             notices.append(fallback_notice(result.model))
 
+        related: list[Citation] = []
         if gate.state == "not_found":
-            message_id = save(NOT_FOUND_ANSWER, "not_found", [])
+            related = related_passages(context)
+            message_id = save(NOT_FOUND_ANSWER, "not_found", [], related)
             answer, citations, not_found = NOT_FOUND_ANSWER, [], True
         else:
             # tail.found: an explanation ending in NOT_FOUND (Q044), shown and saved as not found
             answer, not_found = "".join(shown), tail.found
             citations = _cited(context, cites.resolver.order)
             notices.extend(_answer_notices(citations, result.finish_reason, refusal=not_found))
-            message_id = save(answer, "not_found" if not_found else "answered", citations)
+            if not_found and not citations:
+                related = related_passages(context)
+            message_id = save(answer, "not_found" if not_found else "answered", citations,
+                              related)  # fmt: skip
         _log("Streamed answer", question, len(context.sources),
              sum(s.flagged for s in context.sources), not_found, len(citations),
              cites.resolver.invalid, result, timings)  # fmt: skip
         yield "citations", [c.snapshot() for c in citations]
-        yield "done", done(message_id, answer, not_found, citations)
+        if related:
+            yield "related", [c.snapshot() for c in related]
+        yield "done", done(message_id, answer, not_found, citations, related)
 
     except GeneratorExit:
         # The reader left (Stop, closed tab). Keep what they saw of the answer, if anything.

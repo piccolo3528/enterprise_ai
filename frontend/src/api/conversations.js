@@ -1,11 +1,14 @@
 import { createSseParser } from "../utils/sse";
 import { api, ApiError, reportUnauthorized, toApiError } from "./client";
+import { isAll } from "./scope";
 
 const enc = encodeURIComponent;
 
 /** The user's conversations about one knowledge base, most recently active first. */
+/** The conversations of one knowledge base, or (ALL_KBS) those across all of them (M16b). */
 export async function listConversations(kbId, { signal } = {}) {
-  const { data } = await api.get(`/knowledge-bases/${enc(kbId)}/conversations`, { signal });
+  const url = isAll(kbId) ? "/conversations" : `/knowledge-bases/${enc(kbId)}/conversations`;
+  const { data } = await api.get(url, { signal });
   return data.items;
 }
 
@@ -57,7 +60,9 @@ export async function streamAnswer({
 }) {
   const url = conversationId
     ? `/api/conversations/${enc(conversationId)}/messages`
-    : `/api/knowledge-bases/${enc(kbId)}/conversations`;
+    : isAll(kbId)
+      ? "/api/conversations" // a new conversation across all knowledge bases (M16b)
+      : `/api/knowledge-bases/${enc(kbId)}/conversations`;
   const controller = new AbortController();
   const cancel = () => controller.abort();
   if (signal?.aborted) cancel();

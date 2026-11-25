@@ -55,8 +55,8 @@ SELECT c.id,
 FROM q, chunks c
 JOIN documents d ON d.id = c.document_id
 JOIN knowledge_bases kb ON kb.id = c.kb_id
-WHERE c.kb_id = :kb_id
-  AND kb.owner_id = :owner_id
+WHERE kb.owner_id = :owner_id
+  {kb_filter}
   AND d.status = 'ready'
   AND c.search_vector @@ q.any_term
   {document_filter}
@@ -88,16 +88,21 @@ def keyword_search(
     db: Session,
     *,
     owner_id: uuid.UUID,
-    kb_id: uuid.UUID,
+    kb_id: uuid.UUID | None,
     query: str,
     limit: int,
     document_id: uuid.UUID | None = None,
 ) -> list[KeywordHit]:
-    """Best keyword matches first. A query of only stop words ("the of") matches nothing."""
-    params = {"query": query, "owner_id": owner_id, "kb_id": kb_id, "limit": limit}
-    document_filter = ""
+    """Best keyword matches first. A query of only stop words ("the of") matches nothing.
+    `kb_id=None` searches every knowledge base the owner has (M16b)."""
+    params = {"query": query, "owner_id": owner_id, "limit": limit}
+    kb_filter = document_filter = ""
+    if kb_id is not None:
+        kb_filter = "AND c.kb_id = :kb_id"
+        params["kb_id"] = kb_id
     if document_id is not None:
         document_filter = "AND c.document_id = :document_id"
         params["document_id"] = document_id
-    rows = db.execute(text(_SEARCH.format(document_filter=document_filter)), params).all()
+    sql = _SEARCH.format(kb_filter=kb_filter, document_filter=document_filter)
+    rows = db.execute(text(sql), params).all()
     return [KeywordHit(chunk_id=row.id, matched=row.matched, rank=row.rank) for row in rows]

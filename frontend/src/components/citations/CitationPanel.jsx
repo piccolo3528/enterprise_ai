@@ -70,9 +70,10 @@ function CitationItem({ kbId, citation: c, active, onSelect }) {
             {c.text}
           </p>
           <p className="text-xs text-slate-500">
-            <span className="break-all">{c.filename}</span> ·{" "}
+            <span className="break-all">{c.filename}</span>
+            {c.kb_name && ` · ${c.kb_name}`} ·{" "}
             <Link
-              to={`/knowledge-bases/${kbId}/documents/${c.document_id}`}
+              to={`/knowledge-bases/${c.kb_id ?? kbId}/documents/${c.document_id}`}
               className="font-medium text-indigo-600 hover:text-indigo-500"
             >
               Open document
@@ -84,11 +85,19 @@ function CitationItem({ kbId, citation: c, active, onSelect }) {
   );
 }
 
-/** The passages an answer cites, numbered as in the answer. The selected one shows its text. */
-export default function CitationPanel({ kbId, citations, selected, onSelect }) {
+/**
+ * The passages an answer cites, numbered as in the answer. The selected one shows its text.
+ * `related` (M16b): a "not found" answer's closest passages instead, which it doesn't cite.
+ */
+export default function CitationPanel({ kbId, citations, selected, onSelect, related = false }) {
   return (
     <aside aria-label="Sources" className="space-y-3">
-      <h2 className="text-sm font-semibold text-slate-900">Sources</h2>
+      <h2 className="text-sm font-semibold text-slate-900">{related ? "Related passages" : "Sources"}</h2>
+      {related && citations.length > 0 && (
+        <p className="text-xs text-slate-500">
+          No answer was found in these. They came closest to your question, so check them yourself.
+        </p>
+      )}
       {citations.length === 0 ? (
         <p className="text-sm text-slate-500">
           The sources an answer cites appear here. Select a number in an answer to read the passage.

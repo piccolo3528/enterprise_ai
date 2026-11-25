@@ -51,6 +51,13 @@ describe("streamAnswer", () => {
     expect(seen[2][1]).toEqual({ text: "days [1]." });
   });
 
+  it("starts an all-knowledge-base conversation on /api/conversations (M16b)", async () => {
+    fetch.mockResolvedValue(streamed([event("done", {})]));
+    await streamAnswer({ kbId: "all", question: "Q", multiQuery: false, onEvent: () => {} });
+    expect(fetch.mock.calls[0][0]).toBe("/api/conversations");
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ question: "Q", multi_query: false });
+  });
+
   it("sends a follow-up to its conversation, with the document filter when there is one", async () => {
     fetch.mockResolvedValue(streamed([event("done", {})]));
     await streamAnswer({ kbId: "kb", conversationId: "c1", question: "And then?", onEvent: () => {} });

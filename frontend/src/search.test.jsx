@@ -97,8 +97,17 @@ describe("search page", () => {
     expect(within(nav).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
   });
 
-  it("searches the first knowledge base in hybrid mode and shows a result card", async () => {
+  it("searches all knowledge bases by default (M16b, D91)", async () => {
     renderApp("/search");
+    expect(await screen.findByRole("combobox", { name: "Knowledge base" })).toHaveValue("all");
+    await searchFor("carry forward leave");
+    await waitFor(() =>
+      expect(searchKnowledgeBase).toHaveBeenCalledWith("all", expect.anything(), expect.anything()),
+    );
+  });
+
+  it("searches the selected knowledge base in hybrid mode and shows a result card", async () => {
+    renderApp(`/search?kb=${HR.id}`);
     await searchFor("carry forward leave");
 
     await waitFor(() =>
@@ -120,7 +129,7 @@ describe("search page", () => {
   });
 
   it("re-runs the search when the mode changes, and explains each mode's score", async () => {
-    renderApp("/search?q=carry%20forward");
+    renderApp(`/search?kb=${HR.id}&q=carry%20forward`);
     const user = userEvent.setup();
     expect(await screen.findByText(/semantic #1/)).toBeInTheDocument();
 
@@ -139,7 +148,7 @@ describe("search page", () => {
   });
 
   it("offers only ready documents in the filter and passes the chosen one", async () => {
-    renderApp("/search?q=leave");
+    renderApp(`/search?kb=${HR.id}&q=leave`);
     const user = userEvent.setup();
     const filter = await screen.findByRole("combobox", { name: "Document" });
     await waitFor(() => expect(within(filter).getAllByRole("option")).toHaveLength(2));

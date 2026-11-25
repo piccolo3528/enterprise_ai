@@ -76,6 +76,18 @@ def list_conversations(db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID) -> li
     return [conversation for _, conversation in rows if conversation is not None]
 
 
+def list_all_scope_conversations(db: Session, owner_id: uuid.UUID) -> list[Conversation]:
+    """The caller's conversations across all knowledge bases (M16b), most recent first."""
+    return list(
+        db.scalars(
+            select(Conversation)
+            .where(Conversation.user_id == owner_id, Conversation.kb_id.is_(None))
+            .order_by(Conversation.updated_at.desc())
+            .limit(LIST_LIMIT)
+        )
+    )
+
+
 def get_conversation(
     db: Session, owner_id: uuid.UUID, conversation_id: uuid.UUID
 ) -> tuple[Conversation, list[Message]]:
@@ -94,16 +106,18 @@ def get_conversation(
 
 def load_for_follow_up(
     db: Session, owner_id: uuid.UUID, conversation_id: uuid.UUID, *, max_turns: int
-) -> tuple[uuid.UUID, list[tuple[str, str]]]:
-    """(knowledge base id, the last `max_turns` question/answer pairs as (role, text), oldest
-    first). 404 if the conversation isn't the caller's."""
-    kb_id = db.scalar(
+) -> tuple[uuid.UUID | None, list[tuple[str, str]]]:
+    """(knowledge base id, or None for an all-knowledge-base conversation; the last `max_turns`
+    question/answer pairs as (role, text), oldest first). 404 if the conversation isn't the
+    caller's."""
+    row = db.execute(
         select(Conversation.kb_id).where(
             Conversation.id == conversation_id, Conversation.user_id == owner_id
         )
-    )
-    if kb_id is None:
+    ).first()
+    if row is None:
         raise NotFoundError(NOT_FOUND)
+    kb_id = row[0]
     newest_first = db.execute(
         select(Message.role, Message.content)
         .where(Message.conversation_id == conversation_id)
@@ -149,6 +163,7 @@ class AnswerRecord:
     content: str
     outcome: str  # answered | not_found | stopped
     citations: list[dict[str, Any]] = field(default_factory=list)
+    related: list[dict[str, Any]] = field(default_factory=list)  # not found: closest passages
     notices: list[str] = field(default_factory=list)
     model: str | None = None
     prompt_tokens: int | None = None
@@ -161,7 +176,7 @@ def save_turn(
     db: Session,
     *,
     owner_id: uuid.UUID,
-    kb_id: uuid.UUID,
+    kb_id: uuid.UUID | None,
     conversation_id: uuid.UUID,
     new: bool,
     question: str,
@@ -189,6 +204,7 @@ def save_turn(
         content=answer.content,
         outcome=answer.outcome,
         citations=answer.citations,
+        related=answer.related,
         notices=answer.notices,
         model=answer.model,
         prompt_tokens=answer.prompt_tokens,

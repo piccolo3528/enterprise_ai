@@ -40,12 +40,17 @@ class CitationOut(BaseModel):
     text: str  # the whole passage the model was given
     # The passage contains text that looks like instructions to an AI (best-effort heuristic).
     flagged: bool
+    # M16b: the knowledge base it came from (answers saved before M16b don't have it)
+    kb_id: uuid.UUID | None = None
+    kb_name: str | None = None
 
 
 class AskResponse(BaseModel):
     answer: str  # Markdown with [n] citations; render without raw HTML
     not_found: bool
     citations: list[CitationOut]
+    # Not found and nothing cited: the closest passages it was given, not cited (M16b)
+    related: list[CitationOut] = []
     notices: list[str]
     model: str | None  # None when no LLM call was needed
     prompt_tokens: int | None

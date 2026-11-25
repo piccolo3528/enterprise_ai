@@ -588,6 +588,39 @@ def test_an_explanation_ending_in_not_found_is_kept_and_counts_as_not_found(pipe
     assert answer.not_found
     assert answer.answer == "The sources define tiers [1] but not Kochi's.\n\nTherefore, no answer."
     assert len(answer.citations) == 1 and rag.NO_CITATIONS not in answer.notices
+    assert answer.related == []  # it cites what it found: nothing more to show
+
+
+def scored(*cosines):
+    """Hybrid results whose semantic scores are given (None: a keyword-only match)."""
+    return [
+        SearchResult(passage=passage(i), score=1 / (60 + i), semantic_score=c)
+        for i, c in enumerate(cosines, 1)
+    ]
+
+
+def test_a_bare_not_found_shows_the_closest_passages_above_the_floor(pipeline):
+    # M16b, D93: passages 2, 4, 5 clear the 0.58 floor; 1 is below it; 3 is keyword-only.
+    pipeline["outcome"] = SearchOutcome("hybrid", scored(0.55, 0.70, None, 0.62, 0.65, 0.59),
+                                        timings_ms={"total": 1.0})  # fmt: skip
+    answer = pipeline["ask"](llm=FakeLLM(pipeline["events"], reply="NOT_FOUND"))
+    assert answer.not_found and answer.citations == []
+    assert [(c.number, c.result.passage.chunk_id.int) for c in answer.related] == [
+        (1, 2), (2, 5), (3, 4)  # closest first, at most RELATED_MAX
+    ]
+
+
+def test_an_off_topic_not_found_shows_no_related_passages(pipeline):
+    pipeline["outcome"] = SearchOutcome("hybrid", scored(0.54, 0.48, 0.45),
+                                        timings_ms={"total": 1.0})  # fmt: skip
+    answer = pipeline["ask"](llm=FakeLLM(pipeline["events"], reply="NOT_FOUND"))
+    assert answer.not_found and answer.related == []
+
+
+def test_an_answer_has_no_related_passages(pipeline):
+    pipeline["outcome"] = SearchOutcome("hybrid", scored(0.8, 0.7), timings_ms={"total": 1.0})
+    answer = pipeline["ask"]()
+    assert not answer.not_found and len(answer.citations) == 1 and answer.related == []
 
 
 def test_notices_for_uncited_truncated_flagged_and_degraded_answers(pipeline):

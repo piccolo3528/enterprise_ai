@@ -100,6 +100,9 @@ class Passage:
     page_end: int | None
     text: str
     token_count: int = 0  # embedding-model tokens of `text` (counted at chunking time)
+    # The knowledge base it came from (M16b: shown when a search spans all of them)
+    kb_id: uuid.UUID | None = None
+    kb_name: str | None = None
 
 
 @dataclass
@@ -128,9 +131,20 @@ def _ms(started: float) -> float:
 
 
 def check_scope(
-    db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID, document_id: uuid.UUID | None
+    db: Session, owner_id: uuid.UUID, kb_id: uuid.UUID | None, document_id: uuid.UUID | None
 ) -> None:
-    """404 unless the caller owns the KB and (if given) the document is in it. One query."""
+    """404 unless the caller owns the KB and (if given) the document is in it. One query.
+
+    `kb_id=None` (M16b) means every knowledge base the caller owns: there is nothing to check
+    unless a document was chosen, which must then be in one of them. No query otherwise."""
+    if kb_id is None:
+        if document_id is not None and db.scalar(
+            select(Document.id)
+            .join(KnowledgeBase, KnowledgeBase.id == Document.kb_id)
+            .where(Document.id == document_id, KnowledgeBase.owner_id == owner_id)
+        ) is None:
+            raise NotFoundError(DOCUMENT_NOT_FOUND)
+        return
     found_document = (
         select(Document.id)
         .where(Document.id == document_id, Document.kb_id == KnowledgeBase.id)
@@ -152,19 +166,21 @@ def check_scope(
 def _load_passages(
     db: Session,
     owner_id: uuid.UUID,
-    kb_id: uuid.UUID,
+    kb_id: uuid.UUID | None,
     chunk_ids: set[uuid.UUID],
     document_id: uuid.UUID | None,
 ) -> dict[uuid.UUID, Passage]:
-    """Text + metadata for these chunks, only from ready documents in the caller's KB."""
+    """Text + metadata for these chunks, only from ready documents in the caller's KB (or in
+    any of the caller's KBs when `kb_id` is None)."""
     if not chunk_ids:
         return {}
     conditions = [
         Chunk.id.in_(chunk_ids),
-        Chunk.kb_id == kb_id,
         KnowledgeBase.owner_id == owner_id,
         Document.status == "ready",
     ]
+    if kb_id is not None:
+        conditions.append(Chunk.kb_id == kb_id)
     if document_id:
         conditions.append(Chunk.document_id == document_id)
     rows = db.execute(
@@ -179,6 +195,8 @@ def _load_passages(
             Chunk.page_end,
             Chunk.text,
             Chunk.token_count,
+            KnowledgeBase.id,
+            KnowledgeBase.name,
         )
         .join(Document, Document.id == Chunk.document_id)
         .join(KnowledgeBase, KnowledgeBase.id == Chunk.kb_id)
@@ -193,7 +211,7 @@ def search(
     embedder: Callable[[], Embedder],
     *,
     owner_id: uuid.UUID,
-    kb_id: uuid.UUID,
+    kb_id: uuid.UUID | None,
     query: str,
     mode: Mode,
     top_k: int,
@@ -201,8 +219,9 @@ def search(
     min_score: float | None = None,
     document_id: uuid.UUID | None = None,
 ) -> SearchOutcome:
-    """Search one knowledge base. `embedder` is called only if the semantic side runs (so
-    keyword search works even while the model is still loading at startup)."""
+    """Search one knowledge base, or all of the owner's when `kb_id` is None (M16b). `embedder`
+    is called only if the semantic side runs (so keyword search works even while the model is
+    still loading at startup)."""
     started = time.perf_counter()
     candidates = max(candidates, top_k)
     timings: dict[str, float] = {}

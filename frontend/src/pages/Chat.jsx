@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { getConversation, renameConversation, streamAnswer } from "../api/conversations";
+import { ALL_KBS, DEFAULT_TO_ALL, isAll } from "../api/scope";
 import ChatTurn from "../components/chat/ChatTurn";
 import ConversationList from "../components/chat/ConversationList";
 import DeleteConversationModal from "../components/chat/DeleteConversationModal";
@@ -56,6 +57,7 @@ function turnsFrom(messages) {
         status: m.outcome === "stopped" ? "stopped" : "done",
         text: m.content,
         citations: m.citations,
+        related: m.related ?? [],
         notFound: m.outcome === "not_found",
         notices: m.notices,
         model: m.model,
@@ -64,6 +66,12 @@ function turnsFrom(messages) {
     }
   }
   return turns;
+}
+
+/** What the Sources panel lists for a turn: its citations, else (a "not found", M16b) the
+ * passages that came closest. */
+function sourcesOf(turn) {
+  return turn.citations?.length ? turn.citations : (turn.related ?? []);
 }
 
 /**
@@ -80,8 +88,11 @@ export default function Chat() {
   const { items: knowledgeBases, error: kbError, reload: reloadKbs } = useKnowledgeBases();
   const requestedKb = params.get("kb");
   const conversationId = params.get("c");
-  const kbId =
-    knowledgeBases?.find((kb) => kb.id === requestedKb)?.id ?? knowledgeBases?.[0]?.id ?? null;
+  // ?kb=all (M16b) asks across every knowledge base; otherwise the named one, else the default.
+  const fallbackKb = knowledgeBases?.length ? (DEFAULT_TO_ALL ? ALL_KBS : knowledgeBases[0].id) : null;
+  const kbId = isAll(requestedKb)
+    ? ALL_KBS
+    : (knowledgeBases?.find((kb) => kb.id === requestedKb)?.id ?? fallbackKb);
   const {
     items: conversations,
     setItems: setConversations,
@@ -144,10 +155,11 @@ export default function Chat() {
         setLoading(false);
         const last = loaded.findLast((t) => t.citations.length > 0);
         if (last) setSelected({ turnKey: last.key, number: 1 });
-        if (conversation.kb_id !== kbId) {
+        const scope = conversation.kb_id ?? ALL_KBS; // null: an all-knowledge-base one (M16b)
+        if (scope !== kbId) {
           // A link to a conversation of another knowledge base: select that one.
-          shownRef.current = { kbId: conversation.kb_id, conversationId };
-          setParams({ kb: conversation.kb_id, c: conversationId }, { replace: true });
+          shownRef.current = { kbId: scope, conversationId };
+          setParams({ kb: scope, c: conversationId }, { replace: true });
         }
       })
       .catch((err) => {
@@ -180,6 +192,7 @@ export default function Chat() {
         stage: null,
         text: "",
         citations: [],
+        related: [],
         notices: [],
         notFound: false,
         rewrittenQuery: null,
@@ -207,6 +220,8 @@ export default function Chat() {
               update((t) => ({ text: t.text + data.text }));
             } else if (name === "citations") {
               update({ citations: data });
+            } else if (name === "related") {
+              update({ related: data });
             } else if (name === "done") {
               update({
                 status: "done",
@@ -334,8 +349,8 @@ export default function Chat() {
   }
 
   // The panel shows the sources of the answer last selected, else of the latest answer.
-  const withSources = turns.filter((t) => t.citations?.length > 0);
-  const panelTurn = turns.find((t) => t.key === selected?.turnKey && t.citations?.length > 0) ?? withSources.at(-1) ?? null;
+  const withSources = turns.filter((t) => sourcesOf(t).length > 0);
+  const panelTurn = turns.find((t) => t.key === selected?.turnKey && sourcesOf(t).length > 0) ?? withSources.at(-1) ?? null;
   const selectedNumber = selected?.turnKey === panelTurn?.key ? selected?.number : null;
 
   return (
@@ -344,7 +359,8 @@ export default function Chat() {
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-slate-900">Chat</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Answers come only from the selected knowledge base, with numbered sources.
+            Answers come only from the selected knowledge base, or all of them, with numbered
+            sources.
           </p>
         </div>
         <label className="block w-full text-sm font-medium text-slate-700 sm:w-72">
@@ -355,6 +371,7 @@ export default function Chat() {
             onChange={(e) => setParams({ kb: e.target.value })}
             className={selectClass}
           >
+            <option value={ALL_KBS}>All knowledge bases</option>
             {knowledgeBases.map((kb) => (
               <option key={kb.id} value={kb.id}>
                 {kb.name}
@@ -444,10 +461,13 @@ export default function Chat() {
                     onChange={(e) => setScopeId(e.target.value)}
                     className={selectClass}
                   >
-                    <option value="">All documents in this knowledge base</option>
+                    <option value="">
+                      {isAll(kbId) ? "All documents in all knowledge bases" : "All documents in this knowledge base"}
+                    </option>
                     {readyDocuments.map((d) => (
                       <option key={d.id} value={d.id}>
                         {documentLabel(d)}
+                        {d.kb_name && ` (${d.kb_name})`}
                       </option>
                     ))}
                   </select>
@@ -469,7 +489,8 @@ export default function Chat() {
         <div className="lg:col-start-2 xl:sticky xl:top-6 xl:col-start-auto xl:self-start">
           <CitationPanel
             kbId={kbId}
-            citations={panelTurn?.citations ?? []}
+            citations={panelTurn ? sourcesOf(panelTurn) : []}
+            related={Boolean(panelTurn && !panelTurn.citations?.length)}
             selected={selectedNumber}
             onSelect={(number) => panelTurn && setSelected({ turnKey: panelTurn.key, number })}
           />

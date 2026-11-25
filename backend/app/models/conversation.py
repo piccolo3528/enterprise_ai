@@ -24,13 +24,14 @@ class Conversation(UUIDPrimaryKey, Timestamps, Base):
     __table_args__ = (Index("ix_conversations_user_id_updated_at", "user_id", "updated_at"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    kb_id: Mapped[uuid.UUID] = mapped_column(
+    # NULL (M16b): the conversation asks across all of its owner's knowledge bases.
+    kb_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("knowledge_bases.id", ondelete="CASCADE"), index=True
     )
     title: Mapped[str] = mapped_column(String(200))
 
     user: Mapped[User] = relationship(back_populates="conversations", lazy="raise")
-    knowledge_base: Mapped[KnowledgeBase] = relationship(
+    knowledge_base: Mapped[KnowledgeBase | None] = relationship(
         back_populates="conversations", lazy="raise"
     )
     messages: Mapped[list[Message]] = relationship(
@@ -58,6 +59,8 @@ class Message(UUIDPrimaryKey, CreatedAt, Base):
     # A snapshot of each cited passage as shown (document, version, section, text): the
     # conversation stays readable after the document is reprocessed or deleted.
     citations: Mapped[list[Any]] = mapped_column(server_default=text("'[]'::jsonb"))
+    # A "not found" answer: the closest passages it was given, not cited (M16b), as snapshots.
+    related: Mapped[list[Any]] = mapped_column(server_default=text("'[]'::jsonb"))
     notices: Mapped[list[Any]] = mapped_column(server_default=text("'[]'::jsonb"))
     outcome: Mapped[str | None] = mapped_column(String(20))
     prompt_version: Mapped[str | None] = mapped_column(String(30))

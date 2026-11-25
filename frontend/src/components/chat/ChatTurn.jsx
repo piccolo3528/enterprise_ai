@@ -1,6 +1,7 @@
 import { CircleStop, CornerDownRight, FileText, SearchX, TriangleAlert } from "lucide-react";
 
 import { plural } from "../../utils/format";
+import { citationTitle } from "../citations/CitationPanel";
 import ErrorBanner from "../ui/ErrorBanner";
 import BrandLoader from "../ui/BrandLoader";
 import AnswerText from "./AnswerText";
@@ -65,6 +66,38 @@ export default function ChatTurn({ turn, selected, onCite, onRetry }) {
               <AnswerText text={text} citations={citations} selected={selected} onCite={onCite} />
             ) : (
               <p>{text}</p>
+            )}
+            {turn.related?.length > 0 && (
+              // M16b (D93): the closest passages the model was given. Not an answer: the reader
+              // checks them (the Sources panel shows the text).
+              <div className="mt-2">
+                <p className="text-xs font-medium text-slate-600">
+                  These passages came closest. They don&apos;t answer the question, but may help:
+                </p>
+                <ul aria-label="Related passages" className="mt-1 space-y-1">
+                  {turn.related.map((r) => (
+                    <li key={r.number}>
+                      <button
+                        type="button"
+                        onClick={() => onCite(r.number)}
+                        aria-pressed={selected === r.number}
+                        className={`flex w-full items-start gap-2 rounded-lg px-2 py-1 text-left text-xs hover:bg-white ${
+                          selected === r.number ? "bg-white ring-1 ring-indigo-400" : ""
+                        }`}
+                      >
+                        <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-indigo-50 px-1 font-semibold text-indigo-700">
+                          {r.number}
+                        </span>
+                        <span className="min-w-0 break-words">
+                          <span className="font-medium text-slate-800">{citationTitle(r)}</span>
+                          {r.section && <span className="text-slate-500"> · {r.section}</span>}
+                          {r.kb_name && <span className="text-slate-500"> · {r.kb_name}</span>}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             <p className="mt-1 text-xs text-slate-500">
               Try other words, or check that the document holding the answer is uploaded and ready.

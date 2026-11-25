@@ -102,6 +102,31 @@ def start_conversation(
     """Ask the first question of a new conversation; the answer streams back. The conversation
     is saved with its first answer (its id comes in the first event); nothing is saved if the
     answer fails."""
+    return _start(body, user_id, kb_id, db, settings, vectors, llm, sessions, read_sessions,
+                  limits)  # fmt: skip
+
+
+@router.post("/conversations", responses=_STREAM_DOC)
+def start_conversation_across_all(
+    body: AskRequest,
+    user_id: CurrentUserId,
+    db: ReadDbSession,
+    settings: SettingsDep,
+    vectors: VectorStoreDep,
+    llm: LLMDep,
+    sessions: SessionFactoryDep,
+    read_sessions: ReadSessionFactoryDep,
+    limits: LimitsDep,
+):
+    """Like the route above, but the question searches every knowledge base you have (M16b).
+    The conversation belongs to no single knowledge base; follow-ups search them all too."""
+    return _start(body, user_id, None, db, settings, vectors, llm, sessions, read_sessions,
+                  limits)  # fmt: skip
+
+
+def _start(body: AskRequest, user_id, kb_id, db, settings, vectors, llm, sessions,
+           read_sessions, limits) -> StreamingResponse:  # fmt: skip
+    """A new conversation about one knowledge base, or all of them (`kb_id=None`, M16b)."""
     limits.question(str(user_id))  # 429 before any database or LLM work (M16)
     # 404 unless the KB is yours (and the document, if one was chosen, is in it). One query.
     retrieval.check_scope(db, user_id, kb_id, body.document_id)
@@ -167,6 +192,13 @@ def ask_follow_up(
 def list_conversations(user_id: CurrentUserId, kb_id: KbId, db: ReadDbSession):
     """Your conversations about this knowledge base, most recently active first (at most 100)."""
     items = conversations.list_conversations(db, user_id, kb_id)
+    return ConversationList(items=[ConversationOut.model_validate(c) for c in items])
+
+
+@router.get("/conversations", response_model=ConversationList)
+def list_conversations_across_all(user_id: CurrentUserId, db: ReadDbSession):
+    """Your conversations across all knowledge bases (M16b), most recently active first."""
+    items = conversations.list_all_scope_conversations(db, user_id)
     return ConversationList(items=[ConversationOut.model_validate(c) for c in items])
 
 

@@ -64,6 +64,7 @@ def ask_knowledge_base(
         answer=result.answer,
         not_found=result.not_found,
         citations=[_citation(c) for c in result.citations],
+        related=[_citation(c) for c in result.related],
         notices=result.notices,
         model=result.model,
         prompt_tokens=result.prompt_tokens,
