@@ -11,6 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +47,9 @@ class Settings(BaseSettings):
     )
 
     log_level: str = "INFO"
+    # /docs, /redoc and /openapi.json (M16): handy in development; set false on a public host,
+    # where the full API map would help an attacker more than a user.
+    api_docs_enabled: bool = True
 
     # --- PostgreSQL (Neon) -----------------------------------------------------------
     database_url: SecretStr  # pooled; the URL embeds the password, so the whole URL is secret
@@ -90,6 +94,16 @@ class Settings(BaseSettings):
     # Secure cookies are only sent over HTTPS. Browsers treat http://localhost as secure, so this
     # stays True in development too; only set it False for plain-HTTP hosts other than localhost.
     cookie_secure: bool = True
+
+    # --- Per-user limits (M16, core/rate_limit.py; in memory, reset on restart) -----------
+    # 150 questions = 300 Gemini calls (plan + answer), inside flash-lite's ~500 free a day.
+    rate_limit_chat_per_minute: int = Field(default=10, ge=1)
+    rate_limit_chat_per_day: int = Field(default=150, ge=1)  # rolling 24 hours, per user
+    rate_limit_uploads_per_hour: int = Field(default=20, ge=1)
+    # Failed sign-ins in 15 minutes, per email and per client address.
+    rate_limit_login_failures_per_email: int = Field(default=5, ge=1)
+    rate_limit_login_failures_per_address: int = Field(default=20, ge=1)
+    rate_limit_registrations_per_hour: int = Field(default=5, ge=1)  # per client address
 
     # --- Uploads ------------------------------------------------------------------------
     upload_dir: Path = Path("./storage/uploads")
@@ -159,6 +173,16 @@ class Settings(BaseSettings):
     @classmethod
     def _resolve_upload_dir(cls, v: Path) -> Path:
         return v if v.is_absolute() else (BACKEND_DIR / v).resolve()
+
+    @model_validator(mode="after")
+    def _check_qdrant_key_travels_encrypted(self) -> Settings:
+        # M16: the API key is sent in a header with every Qdrant call. Over plain http to another
+        # machine anyone on the network path could read it; only a local Qdrant may use http.
+        url = urlsplit(self.qdrant_url)
+        local = url.hostname in {"127.0.0.1", "localhost", "::1"}
+        if self.qdrant_api_key is not None and url.scheme != "https" and not local:
+            raise ValueError("QDRANT_URL must use https:// when QDRANT_API_KEY is set")
+        return self
 
     @model_validator(mode="after")
     def _check_rag_numbers(self) -> Settings:

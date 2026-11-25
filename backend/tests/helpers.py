@@ -20,11 +20,21 @@ BASE_VALUES = {
     "qdrant_url": "http://127.0.0.1:6999",
     "gemini_api_key": "fake-gemini-key",
 }
+# Test modules share one app, so its per-user limits (M16) would refuse their many requests.
+# Limits get high values here; tests of the limits themselves pass small ones.
+NO_LIMITS = {
+    "rate_limit_chat_per_minute": 10_000,
+    "rate_limit_chat_per_day": 10_000,
+    "rate_limit_uploads_per_hour": 10_000,
+    "rate_limit_login_failures_per_email": 10_000,
+    "rate_limit_login_failures_per_address": 10_000,
+    "rate_limit_registrations_per_hour": 10_000,
+}
 
 
 def make_settings(**overrides) -> Settings:
     """Settings for unit tests, built from fake values only (backend/.env is ignored)."""
-    values = {**BASE_VALUES, **overrides}
+    values = {**BASE_VALUES, **NO_LIMITS, **overrides}
     return load_settings(_env_file=None, **values)
 
 
@@ -34,7 +44,7 @@ TEST_COLLECTION = "chunks_test"
 
 def live_settings(**overrides) -> Settings:
     """backend/.env settings (real services) aimed at the test collection."""
-    return load_settings(qdrant_collection=TEST_COLLECTION, **overrides)
+    return load_settings(qdrant_collection=TEST_COLLECTION, **{**NO_LIMITS, **overrides})
 
 
 def alembic_config(url: str) -> Config:

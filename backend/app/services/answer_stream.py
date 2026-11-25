@@ -4,7 +4,9 @@ Two things are only certain once the whole answer exists, yet the reader should 
 
 1. **"Not found"** (D62). The model replies exactly `NOT_FOUND` when the sources don't answer.
    `NotFoundGate` holds the first characters back while they could still be that reply
-   ("N", "NOT_", "**NOT"...) and releases them as soon as they can't be.
+   ("N", "NOT_", "**NOT"...) and releases them as soon as they can't be. `TrailingNotFound`
+   does the same for the marker at the *end* of an explanation (M16): the explanation is shown,
+   and the answer counts as "not found".
 2. **Citations** (§4.6). Numbers that weren't given are removed and the rest renumbered in order
    of first use. `CitationStream` applies the same `CitationResolver` piece by piece, holding back
    only text that could still become part of a citation: an unclosed `[2, ` or a `[6.1]` whose
@@ -20,12 +22,18 @@ from __future__ import annotations
 import re
 
 from app.services.citations import CitationResolver
-from app.services.llm.prompts import NOT_FOUND, is_not_found
+from app.services.llm.prompts import NOT_FOUND, TRAILING_NOT_FOUND, is_not_found
 
 # From a "[" to the end: digits, separators and spaces only (still possibly a citation or section
 # reference), optionally closed by "]" as the very last character (the next one may be "(").
 _OPEN_BRACKET = re.compile(r"\[[\s\d.,\-–]*\]?")
 _TRAILING_SPACE = re.compile(r"\s*\Z")
+# An end of text that could still grow into TRAILING_NOT_FOUND: decoration/space, then a prefix
+# of the marker ("N" ... "NOT_FOUN"), or the whole marker with its closing decoration.
+_MAYBE_TRAILING = re.compile(
+    r"[\s*_`'\"]*(?<![A-Za-z0-9])"
+    r"(?:NOT_FOUND[\s*_`'\".!]*|N(?:O(?:T(?:_(?:F(?:O(?:U(?:N)?)?)?)?)?)?)?)?\Z"
+)
 
 
 class NotFoundGate:
@@ -64,6 +72,44 @@ class NotFoundGate:
             self.state, self._held = "not_found", ""
             return ""
         return self._release()
+
+
+class TrailingNotFound:
+    """Holds back the end of the answer while it could still be a trailing NOT_FOUND (M16).
+
+    The model sometimes explains what the sources lack and then signs off with the marker (Q044).
+    The explanation streams normally; only a tail such as " N", " NOT_FO" or " **NOT_FOUND**" is
+    held, and dropped at the end if it completes the marker. "NOT_FOUND items" mid-answer is
+    released as soon as the next word arrives. The result equals `split_trailing_not_found` on
+    the whole answer.
+    """
+
+    def __init__(self) -> None:
+        self.found = False
+        self._held = ""
+        self._released = False  # any non-blank text released: an explanation exists
+        # The last character released: the marker must be its own word, and "X" released in an
+        # earlier piece still decides whether "NOT_FOUND" is glued to it. Searching from
+        # pos=len(context) lets the regex's look-behind see that character.
+        self._context = ""
+
+    def feed(self, text: str) -> str:
+        buffer = self._context + self._held + text
+        match = _MAYBE_TRAILING.search(buffer, len(self._context))
+        cut = match.start() if match else len(buffer)
+        released = buffer[len(self._context) : cut]
+        self._held = buffer[cut:]
+        if released:
+            self._context = released[-1]
+            self._released = self._released or bool(released.strip())
+        return released
+
+    def finish(self) -> str:
+        held, self._held = self._held, ""
+        if self._released and TRAILING_NOT_FOUND.match(self._context + held, len(self._context)):
+            self.found = True
+            return ""
+        return held
 
 
 class CitationStream:

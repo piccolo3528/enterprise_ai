@@ -12,6 +12,7 @@ import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
 import BrandLoader from "../components/ui/BrandLoader";
 import Textarea from "../components/ui/Textarea";
+import { useAuth } from "../context/AuthContext";
 import { useConversations } from "../hooks/useConversations";
 import { useDocuments } from "../hooks/useDocuments";
 import { useKnowledgeBases } from "../hooks/useKnowledgeBases";
@@ -74,6 +75,8 @@ function turnsFrom(messages) {
  */
 export default function Chat() {
   const [params, setParams] = useSearchParams();
+  // Settings > "Extra phrasings" (M16): false skips the planning call for each question.
+  const multiQuery = useAuth().user?.preferences?.chat_multi_query;
   const { items: knowledgeBases, error: kbError, reload: reloadKbs } = useKnowledgeBases();
   const requestedKb = params.get("kb");
   const conversationId = params.get("c");
@@ -190,6 +193,7 @@ export default function Chat() {
           conversationId: target.conversationId,
           question,
           documentId: scope?.id,
+          multiQuery,
           signal: run.controller.signal,
           onEvent: (name, data) => {
             if (name === "conversation") {
@@ -244,7 +248,7 @@ export default function Chat() {
         if (streamRef.current === run) streamRef.current = null;
       }
     },
-    [reloadList, setParams],
+    [reloadList, setParams, multiQuery],
   );
 
   const busy = turns.some((t) => t.status === "streaming");

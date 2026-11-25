@@ -10,5 +10,5 @@ export const NAV_ITEMS = [
   { to: "/chat", label: "Chat", icon: MessagesSquare, ready: true },
   { to: "/search", label: "Search", icon: Search, ready: true },
   { to: "/status", label: "System status", icon: Activity, ready: true },
-  { to: "/settings", label: "Settings", icon: Settings, ready: false },
+  { to: "/settings", label: "Settings", icon: Settings, ready: true },
 ];

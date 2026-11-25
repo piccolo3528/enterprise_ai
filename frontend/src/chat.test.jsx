@@ -147,6 +147,13 @@ describe("chat page", () => {
     await waitFor(() => expect(listConversations).toHaveBeenCalledWith(FIN.id, expect.anything()));
   });
 
+  it("asks without extra phrasings when the user turned them off in Settings", async () => {
+    getMe.mockResolvedValue({ ...TEST_USER, preferences: { ...TEST_USER.preferences, chat_multi_query: false } });
+    renderApp("/chat");
+    await ask("How much leave can I carry forward?");
+    expect(streamAnswer).toHaveBeenCalledWith(expect.objectContaining({ multiQuery: false }));
+  });
+
   it("streams the answer, then shows citation chips, the meta line and the sources", async () => {
     listConversations.mockResolvedValueOnce([]).mockResolvedValue([NEW]);
     renderApp("/chat");
@@ -301,6 +308,23 @@ describe("chat page", () => {
     expect(screen.getByRole("complementary", { name: "Sources" })).toHaveTextContent(
       "The sources an answer cites appear here",
     );
+  });
+
+  it("shows the model's explanation of a not-found answer with the sources it cites", async () => {
+    // M16 (Q044): "… the sources don't give Kochi's tier [1]. NOT_FOUND" reaches the page as an
+    // explanation marked not_found, without the marker, citing what it did find.
+    const explanation = "The sources define the city tiers [1] but don't list Kochi.";
+    const script = events({ answer: explanation, citations: [citation(1)] }).map(([name, data]) =>
+      name === "done" ? [name, { ...data, not_found: true }] : [name, data],
+    );
+    streamAnswer.mockImplementation(plays(script));
+    renderApp("/chat");
+    await ask("What is the hotel limit in Kochi?");
+    expect(await screen.findByText(/Try other words/)).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "Answer" })).not.toBeInTheDocument();
+    expect(screen.getByText(/don't list Kochi/)).toBeInTheDocument();
+    expect(screen.queryByText(/NOT_FOUND/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show source 1" })).toBeInTheDocument();
   });
 
   it("shows notices and warns about a flagged source", async () => {

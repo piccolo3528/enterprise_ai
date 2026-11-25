@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.api.deps import get_optional_user_id
 from app.core.config import load_settings
 from app.factory import create_app
 
@@ -19,8 +22,16 @@ def live_client():
 
 
 def test_health_reports_real_services_ok(live_client):
-    body = live_client.get("/api/health").json()
+    # The full report is for signed-in users (M16). This test is about the real services, not
+    # sessions, so it stands in for the session instead of creating a user in the dev database.
+    assert live_client.get("/api/health").json() == {"status": "ok"}  # signed out
+    live_client.app.dependency_overrides[get_optional_user_id] = uuid.uuid4
+    try:
+        body = live_client.get("/api/health").json()
+    finally:
+        live_client.app.dependency_overrides.clear()
     assert body["services"]["database"]["status"] == "ok", body
+    assert body["services"]["database"]["size_bytes"] > 0
     assert body["services"]["vector_store"]["status"] == "ok", body
     assert body["services"]["llm"]["api_key_configured"] is True
     assert body["status"] == "ok"

@@ -15,7 +15,9 @@ this in your documents" instead of a made-up answer.
 > retrieval improved by measurement (Hit@1 72 % → 82 %: multi-query and version-aware ranking;
 > reranking measured and not adopted), and answers measured with a validated LLM judge
 > (faithfulness 98 %, citation accuracy 99 %, 40 of 50 correct; backup models when Gemini's free
-> quota runs out). Next: settings, security hardening and UX polish (M16).**
+> quota runs out), and a Settings page with per-user limits, "sign out everywhere" and a
+> security checklist where every item is a test (authorization on all 28 routes, headers,
+> secrets kept out of logs). Next: documentation and GitHub readiness (M17).**
 > The features below are the *target*. Progress, verified results and known limitations are
 > tracked in [PROJECT_TRACKER.md](PROJECT_TRACKER.md). The setup guide is **drafted but not yet
 > verified**. Each step is checked off as the milestone that creates it is completed.
@@ -36,6 +38,9 @@ this in your documents" instead of a made-up answer.
   faithfulness, citation accuracy, refusals, correctness, relevance, latency) with a validated
   LLM judge
 - Backup models when the main model's free quota runs out
+- A Settings page: your name, password, search and chat defaults, "sign out everywhere", system
+  status with database storage, and a privacy notice about the free AI tiers
+- Abuse limits per user (questions, uploads, sign-in attempts) and a tested security checklist
 
 ## Tech stack
 
@@ -399,7 +404,7 @@ frontend.
   defaults come from `backend/evaluation/reports/2026-11-20_retrieval_*.md`; without
   `GEMINI_API_KEY` the page explains that answering isn't configured.
 
-### 13. Run the tests *(verified; M15: 430 unit + 108 live backend (+4 real-Gemini), 103 frontend)*
+### 13. Run the tests *(verified; M16: 587 unit + 124 live backend (+4 real-Gemini), 116 frontend)*
 
 ```powershell
 # backend (venv active, in backend/)
@@ -555,6 +560,11 @@ measured on 23 Nov:
 - Scanned PDFs (images without a text layer) aren't supported, because there is no OCR.
 - DOCX citations show the section rather than the page number.
 - PyMuPDF is AGPL-licensed.
+- Per-user limits (10 questions a minute, 150 a day, 20 uploads an hour) and "sign out
+  everywhere" are kept in the memory of one server process: a restart resets the counts, and the
+  app is meant to run as one process.
+- Five wrong passwords lock that email's sign-in for 15 minutes, which anyone who knows the email
+  can trigger.
 
 The full list with mitigations is in [PROJECT_TRACKER.md §F.5](PROJECT_TRACKER.md).
 

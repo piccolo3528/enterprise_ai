@@ -44,6 +44,21 @@ describe("signing in", () => {
     expect(login).toHaveBeenCalledWith({ email: "ana@example.com", password: "a-long-passphrase" });
   });
 
+  it("shows the lock-out after too many wrong passwords (M16)", async () => {
+    login.mockRejectedValue(
+      new ApiError({
+        status: 429,
+        code: "rate_limited",
+        message: "Too many failed sign-in attempts. Try again in 15 minutes.",
+      }),
+    );
+    renderApp("/status");
+    await userEvent.type(await screen.findByLabelText("Email"), "ana@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "a-guess");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Try again in 15 minutes.");
+  });
+
   it("keeps the query string of the page that was asked for", async () => {
     // Found in M12's Chrome check: an expired session on /chat?kb=… came back to /chat.
     function ShowLocation() {

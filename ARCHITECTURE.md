@@ -1,7 +1,7 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M15 (2026-11-24).** Parts labelled
-> "implemented in M2" … "M15" (or "built in") describe built, tested code; the rest is still design.
+> Status: **v0.2 approved 2026-11-06; implemented through M16 (2026-11-25).** Parts labelled
+> "implemented in M2" … "M16" (or "built in") describe built, tested code; the rest is still design.
 > v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
 > **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
 > the local Windows binary remains a no-code-change alternative). Groq is the last step of the
@@ -146,7 +146,13 @@ models/ (SQLAlchemy), vector_store (Qdrant), llm client (Gemini), storage (disk)
 - **Unexpected errors** return a generic 500. The traceback goes to the server log only.
 - **`GET /api/health`** always returns HTTP 200 with `status: ok | degraded` and a status, latency
   and short error per service, so the status page can show *which* part is down. It spends no
-  Gemini quota (it only reports whether the key is configured).
+  Gemini quota (it only reports whether the key is configured). **M16:** the full report (plus the
+  database size and the server's pipeline settings) is for signed-in users; without a session it
+  is only `{"status": "ok"}` and runs no checks (D86).
+- **Security headers (M16, D87)** on every `/api` response, errors included: nosniff, a CSP that
+  allows nothing, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`.
+- **Rate limits (M16, D83):** over a per-user limit the answer is 429 `rate_limited` with
+  `Retry-After` and a message that says how long to wait.
 - **Our own validator messages** reach the client without pydantic's `"Value error, "` prefix
   (M6), so a form shows *"Enter a name"*, not *"Value error, Enter a name"*.
 - **Malformed ids are 404, not 422** (M6): `/api/knowledge-bases/not-a-uuid` gets the same answer
@@ -601,17 +607,18 @@ isn't deterministic: one question was answered in one run and refused in the nex
 
 | Piece | Detail |
 |---|---|
-| Endpoints | `POST /api/auth/register` (201, also signs in) · `POST /api/auth/login` · `POST /api/auth/logout` (204) · `GET /api/auth/me` |
+| Endpoints | `POST /api/auth/register` (201, also signs in) · `POST /api/auth/login` · `POST /api/auth/logout` (204) · `GET /api/auth/me` · M16: `PATCH /api/auth/me` (name, preferences) · `POST /api/auth/password` (204, new cookie) · `POST /api/auth/logout-all` (204) |
 | Hashing | Argon2id, argon2-cffi defaults (64 MiB, 3 passes, 4 lanes; ~108 ms per check measured). Hashes are upgraded at login if the settings change. Unknown emails are checked against a dummy hash, so response time doesn't reveal which accounts exist. |
 | Cookie | `session=<JWT>`; `HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=JWT_EXPIRE_MINUTES×60`. Browsers accept `Secure` on `http://localhost` (verified in Chrome), so `COOKIE_SECURE` stays true in development. |
-| Token | HS256 only (no `alg: none`, no key confusion); `sub`, `iat` and `exp` required. |
-| Who is signed in | `CurrentUserId` trusts the signed token and does **no** database read; `CurrentUser` loads the row (one read) only where needed. |
+| Token | HS256 only (no `alg: none`, no key confusion); `sub`, `iat` and `exp` required; M16: `ver` = the user's `token_version` (tokens without it count as 0). |
+| Who is signed in | `CurrentUserId` trusts the signed token; M16: its `ver` must equal the user's current `token_version`, read from PostgreSQL once per user per server start and then kept in memory (`core/sessions.py`, D84), so a normal request still does **no** database read; `CurrentUser` loads the row (one read) only where needed. |
 | Errors | Wrong password and unknown email: the same 401 *"Incorrect email or password."*. Duplicate email: 409, detected by the unique constraint, so there's no pre-check query and no race. |
 | CSRF | SameSite=Strict, plus JSON-only bodies: a cross-site form can't send `application/json` without a CORS preflight, which this server doesn't allow (a `text/plain` login is refused). |
 | Frontend | `AuthContext` (states: loading, authenticated, anonymous, error); `ProtectedRoute` / `PublicOnlyRoute`; an expired session on any API call returns the user to sign-in with a notice. |
 
-Known limits: sign-in rate limiting is planned for M16 (L26), and stateless tokens can't be
-revoked before they expire (L27).
+M16 closed both earlier limits: failed sign-ins are limited per email and per address (D83,
+L26), and a password change or "Sign out everywhere" revokes every older token (D84, L27). The
+token-version cache is exact for one server process (L80).
 
 **Knowledge bases and tenant isolation (implemented in M6)** (`services/knowledge_bases.py`,
 `api/routes/knowledge_bases.py`):
@@ -907,6 +914,25 @@ sections, versions, statuses and amendments.
 - **S5, evaluation:** the corpus and the spec's evaluation schema (`expected_document_ids`,
   `expected_versions`, `expected_sections`, `question_type`, `answerable`) drive M11/M15.
 
+### 4.16 Security checklist *(built in M16; every row is a test)*
+
+| Area | What the app does | Evidence (tests) |
+|---|---|---|
+| Authorization on every route | Each route is classified public / self / owned in one table; the test reads the app's own route list (OpenAPI) and fails on an unclassified route (D90). Non-public routes: no cookie, a garbage token, an expired token, a token signed with another key → 401. Owned routes: a malformed id → 404; another user's real ids → 404, identical to "missing", without reaching the LLM or Qdrant | `unit/test_security_checklist.py` (28 routes × 3 cookie cases, 18 malformed-id cases); `integration/test_authz_matrix.py` (18 owned routes cross-user, fakes that fail if touched). Found `/ask` calling Gemini before the ownership check (D89) |
+| Sessions | `HttpOnly; Secure; SameSite=Strict; Path=/api` JWT cookie, HS256 only; `token_version` in every token: a password change or "sign out everywhere" ends all sessions (D84) | `integration/test_auth_api.py` (cookie flags), `integration/test_settings_api.py` (old token refused in-process and after a restart), `unit/test_sessions.py` |
+| Abuse limits | Per user: 10 questions/min, 150/24 h, 20 uploads/h; failed sign-ins 5 per email and 20 per address per 15 min (checked before the password); 5 registrations/h per address; 429 + `Retry-After` (D83) | `unit/test_rate_limit.py` (window maths, every limited route answers 429 before database/LLM work), `integration/test_auth_api.py` (real lock-out) |
+| Upload abuse | §4.9: size before reading, extension + magic bytes, zip bomb (declared ≤ 200 MB, ≤ 5,000 entries: a forged declared size can't bypass it, because Python's `zipfile` stops at the declared size), PDF ≤ 1,000 pages, server-side file names, nothing left behind on refusal | `unit/test_ingestion.py`, `integration/test_documents_api.py`, `unit/test_security_checklist.py` (forged-size zip: 50 MB in 49 KB claiming 1 KB → refused as damaged) |
+| Error leakage | One error shape; a 500 says only "Something went wrong" with a request id; 422 never echoes input (passwords); health errors show the exception type only | `unit/test_errors.py`, `unit/test_health.py` |
+| Secrets | `SecretStr` settings; startup logs only "set / not set"; config errors never print values | `unit/test_security_checklist.py`: six secrets (DB password, JWT secret, Gemini, Groq and Qdrant keys, a user's password) and the session token appear in no log line at DEBUG and no response, across a validation error, a database failure with a traceback and a failing health check |
+| Qdrant (Qdrant Cloud) | The API key travels only in server-to-Qdrant requests; the config refuses a key over plain http to a non-local host; the health report names the collection, never the host | `unit/test_security_checklist.py`; the built frontend bundle contains no key patterns or hosts (scanned at every close-out) |
+| Response headers | Every `/api` response: `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` (errors included); `/docs` exempt from the CSP and switchable off (`API_DOCS_ENABLED`) (D87) | `unit/test_security_checklist.py` |
+| Public surface | Without a session `/api/health` answers `{"status": "ok"}` and runs no checks (D86); sign-in, registration and sign-out are the only other public routes | `unit/test_health.py`, the matrix's route table |
+| Prompt injection | §4.6 (M12): rules only in the system instruction, escaped source tags, no tools, citation validation, flagged passages | `unit/test_answering.py` |
+
+Limits of this checklist: limits and token versions live in one process (L80); the email lock-out
+can be triggered by anyone who knows the email (L81); the React pages themselves get no CSP in
+development (L86).
+
 ### 4.14 Docker-ready without Docker
 
 v1 doesn't use Docker, but the code follows the rules that make containerizing it later a
@@ -1187,7 +1213,9 @@ The full annotated template is [`backend/.env.example`](backend/.env.example). C
 | Gemini | `GEMINI_API_KEY`, `GEMINI_MODEL_ANSWER`, `GEMINI_MODEL_UTILITY`, `GEMINI_RPM_LIMIT` |
 | Generation (M12) | `LLM_TEMPERATURE`, `LLM_MAX_OUTPUT_TOKENS`, `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` |
 | Models | `EMBEDDING_MODEL`, `RERANKER_MODEL` |
-| Auth | `JWT_SECRET`, `JWT_EXPIRE_MINUTES` |
+| Auth | `JWT_SECRET`, `JWT_EXPIRE_MINUTES`, `COOKIE_SECURE` |
+| Limits (M16) | `RATE_LIMIT_CHAT_PER_MINUTE`, `RATE_LIMIT_CHAT_PER_DAY`, `RATE_LIMIT_UPLOADS_PER_HOUR`, `RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL`, `RATE_LIMIT_LOGIN_FAILURES_PER_ADDRESS`, `RATE_LIMIT_REGISTRATIONS_PER_HOUR` |
+| API docs (M16) | `API_DOCS_ENABLED` (turn `/docs` off on a public host) |
 | Uploads | `UPLOAD_DIR`, `MAX_UPLOAD_MB` |
 | RAG tuning | `CHUNK_SIZE_TOKENS`, `CHUNK_OVERLAP_TOKENS`, `RETRIEVAL_TOP_K`, `CONTEXT_TOKEN_BUDGET`, `CONTEXT_MAX_SOURCES` (M12), `HISTORY_MAX_TURNS`, `HISTORY_TOKEN_BUDGET` (M13), `RERANK_ENABLED`, `RERANK_POOL`, `RERANK_MIN_SCORE`, `VERSION_MODE`, `AMENDMENTS_ENABLED`, `MULTI_QUERY_ENABLED` (M14) |
 

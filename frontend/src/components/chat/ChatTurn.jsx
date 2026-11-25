@@ -58,8 +58,14 @@ export default function ChatTurn({ turn, selected, onCite, onRetry }) {
       {notFound && (
         <div className="flex max-w-[85%] gap-3 rounded-2xl rounded-bl-sm border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           <SearchX aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-slate-500" />
-          <div>
-            <p>{text}</p>
+          <div className="min-w-0">
+            {/* The standard reply, or the model's own explanation of what the sources lack,
+                which can cite what it did find (M16, Q044). */}
+            {citations?.length > 0 ? (
+              <AnswerText text={text} citations={citations} selected={selected} onCite={onCite} />
+            ) : (
+              <p>{text}</p>
+            )}
             <p className="mt-1 text-xs text-slate-500">
               Try other words, or check that the document holding the answer is uploaded and ready.
             </p>

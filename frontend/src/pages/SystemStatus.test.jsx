@@ -14,7 +14,7 @@ function report(overrides = {}) {
     status: "ok",
     version: "0.1.0",
     services: {
-      database: { status: "ok", latency_ms: 815, detail: null },
+      database: { status: "ok", latency_ms: 815, detail: null, size_bytes: 31_457_280 },
       vector_store: {
         status: "ok",
         latency_ms: 245,
@@ -50,6 +50,7 @@ describe("SystemStatus", () => {
     expect(screen.getByText("Checking services…")).toBeInTheDocument();
     expect(await screen.findByText("All systems operational")).toBeInTheDocument();
     expect(screen.getByText("815 ms")).toBeInTheDocument();
+    expect(screen.getByText("30.0 MB")).toBeInTheDocument(); // the database size (M16)
     expect(screen.getByText("Not yet (on first indexing)")).toBeInTheDocument();
     // Answer and utility model are the same model by default.
     expect(screen.getAllByText("gemini-3.5-flash-lite", { selector: "dd" })).toHaveLength(2);

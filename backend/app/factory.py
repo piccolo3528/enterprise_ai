@@ -24,11 +24,14 @@ from app.api.routes import (
     health,
     knowledge_bases,
     search,
+    stats,
 )
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
+from app.core.rate_limit import RateLimits
+from app.core.sessions import TokenVersions
 from app.db.session import build_engine, build_read_session_factory, build_session_factory
 from app.db.session import warm_up as warm_up_database
 from app.services.embeddings import get_embedder
@@ -135,8 +138,13 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
         title="Enterprise Knowledge Intelligence Platform",
         version=app_version(),
         lifespan=lifespan,
+        docs_url="/docs" if settings.api_docs_enabled else None,
+        redoc_url="/redoc" if settings.api_docs_enabled else None,
+        openapi_url="/openapi.json" if settings.api_docs_enabled else None,
     )
     app.state.settings = settings
+    app.state.limits = RateLimits.from_settings(settings)  # per-user limits, in memory (M16)
+    app.state.token_versions = TokenVersions()  # sign out everywhere (M16, D83)
     app.add_middleware(RequestContextMiddleware)
     register_error_handlers(app)
     app.include_router(health.router, prefix="/api")
@@ -146,4 +154,5 @@ def create_app(settings: Settings | None = None, *, warm_up: bool = True) -> Fas
     app.include_router(search.router, prefix="/api")
     app.include_router(answers.router, prefix="/api")
     app.include_router(conversations.router, prefix="/api")
+    app.include_router(stats.router, prefix="/api")
     return app

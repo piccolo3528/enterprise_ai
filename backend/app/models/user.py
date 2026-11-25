@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import CheckConstraint, String, text
+from sqlalchemy import CheckConstraint, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, CreatedAt, UUIDPrimaryKey
@@ -23,7 +23,15 @@ class User(UUIDPrimaryKey, CreatedAt, Base):
     email: Mapped[str] = mapped_column(String(320), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))  # Argon2id (M5), never the password
     full_name: Mapped[str] = mapped_column(String(200))
+    # Search and chat preferences (M16, schemas/auth.py Preferences), edited on the Settings page.
     settings: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
+    # In every session token; incremented to sign out everywhere (password change, M16).
+    token_version: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+
+    @property
+    def preferences(self) -> dict[str, Any]:
+        """The stored preferences; UserOut fills in defaults for anything never set."""
+        return self.settings or {}
 
     # lazy="raise": touching user.knowledge_bases without loading it explicitly raises an error
     # instead of silently running a query. Each hidden query costs a network round trip.

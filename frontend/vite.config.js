@@ -13,7 +13,9 @@ export default defineConfig({
       // auth cookie just works. API keys stay on the backend; the frontend has no secrets.
       // 127.0.0.1, not "localhost": Node resolves localhost to IPv6 (::1) first, but uvicorn
       // listens on IPv4 127.0.0.1 by default.
-      "/api": { target: "http://127.0.0.1:8000" },
+      // xfwd: send X-Forwarded-For, so per-address sign-in limits (M16) see the browser's
+      // address; uvicorn trusts that header only from 127.0.0.1 (--forwarded-allow-ips).
+      "/api": { target: "http://127.0.0.1:8000", xfwd: true },
     },
   },
   test: {

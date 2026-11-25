@@ -8,9 +8,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.deps import CurrentUserId, KbId, LLMDep, ReadDbSession, SettingsDep, VectorStoreDep
+from app.api.deps import (
+    CurrentUserId,
+    KbId,
+    LimitsDep,
+    LLMDep,
+    ReadDbSession,
+    SettingsDep,
+    VectorStoreDep,
+)
 from app.schemas.answers import AskRequest, AskResponse, CitationOut
-from app.services import rag
+from app.services import rag, retrieval
 from app.services.embeddings import get_embedder
 
 router = APIRouter(tags=["answers"])
@@ -29,10 +37,15 @@ def ask_knowledge_base(
     settings: SettingsDep,
     vectors: VectorStoreDep,
     llm: LLMDep,
+    limits: LimitsDep,
 ):
     """Answer from the knowledge base's ready documents, citing them. 404 for a knowledge base
-    that isn't yours; 429 `rate_limited` / `quota_exhausted`; 503 `llm_unavailable` /
-    `llm_not_configured`; 422 `answer_blocked`."""
+    that isn't yours; 429 `rate_limited` (also your per-user question limit, M16) /
+    `quota_exhausted`; 503 `llm_unavailable` / `llm_not_configured`; 422 `answer_blocked`."""
+    limits.question(str(user_id))
+    # Ownership first (M16, found by the authz matrix): the planning call below would otherwise
+    # spend a Gemini request before retrieval's own check answered 404 for someone else's KB.
+    retrieval.check_scope(db, user_id, kb_id, body.document_id)
     result = rag.answer_question(
         db,
         vectors,
@@ -44,7 +57,7 @@ def ask_knowledge_base(
         candidates=settings.retrieval_top_k,
         max_sources=settings.context_max_sources,
         token_budget=settings.context_token_budget,
-        settings=rag.answer_settings(settings),
+        settings=rag.answer_settings(settings, body.multi_query),
         document_id=body.document_id,
     )
     return AskResponse(

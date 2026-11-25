@@ -33,6 +33,7 @@ from app.api.deps import (
     CurrentUserId,
     DbSession,
     KbId,
+    LimitsDep,
     LLMDep,
     ReadDbSession,
     ReadSessionFactoryDep,
@@ -96,10 +97,12 @@ def start_conversation(
     llm: LLMDep,
     sessions: SessionFactoryDep,
     read_sessions: ReadSessionFactoryDep,
+    limits: LimitsDep,
 ):
     """Ask the first question of a new conversation; the answer streams back. The conversation
     is saved with its first answer (its id comes in the first event); nothing is saved if the
     answer fails."""
+    limits.question(str(user_id))  # 429 before any database or LLM work (M16)
     # 404 unless the KB is yours (and the document, if one was chosen, is in it). One query.
     retrieval.check_scope(db, user_id, kb_id, body.document_id)
     db.close()  # release the connection now: the stream outlives this function
@@ -113,7 +116,7 @@ def start_conversation(
             llm,
             turn=turn,
             question=body.question,
-            settings=rag.answer_settings(settings),
+            settings=rag.answer_settings(settings, body.multi_query),
             document_id=body.document_id,
         )
     )
@@ -130,9 +133,11 @@ def ask_follow_up(
     llm: LLMDep,
     sessions: SessionFactoryDep,
     read_sessions: ReadSessionFactoryDep,
+    limits: LimitsDep,
 ):
     """Ask a follow-up. It is rewritten as a standalone question using the recent turns
     (HISTORY_MAX_TURNS, HISTORY_TOKEN_BUDGET), then answered like a first question."""
+    limits.question(str(user_id))
     kb_id, messages = conversations.load_for_follow_up(
         db, user_id, conversation_id, max_turns=settings.history_max_turns
     )
@@ -152,7 +157,7 @@ def ask_follow_up(
             llm,
             turn=turn,
             question=body.question,
-            settings=rag.answer_settings(settings),
+            settings=rag.answer_settings(settings, body.multi_query),
             document_id=body.document_id,
         )
     )

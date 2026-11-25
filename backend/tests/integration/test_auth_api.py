@@ -44,7 +44,8 @@ def test_register_creates_the_user_and_signs_in(client, db):
     assert response.status_code == 201
     body = response.json()
     assert body["email"] == "new.user@example.com"  # stored lowercase
-    assert set(body) == {"id", "email", "full_name", "created_at"}  # no password hash
+    # no password hash, no token version; preferences since M16
+    assert set(body) == {"id", "email", "full_name", "created_at", "preferences"}
 
     stored = db.scalar(select(User).where(User.email == "new.user@example.com"))
     assert stored.password_hash.startswith("$argon2id$")
@@ -85,6 +86,42 @@ def test_wrong_password_and_unknown_email_get_the_same_answer(client):
     assert wrong.status_code == unknown.status_code == 401
     assert wrong.json()["error"]["message"] == unknown.json()["error"]["message"]
     assert "set-cookie" not in wrong.headers
+
+
+def test_five_wrong_passwords_lock_the_email_even_against_the_right_one(client):
+    # M16 (L26): default limits, 5 failures per email in 15 minutes.
+    register(client, email="locked@example.com")
+    client.post("/api/auth/logout")
+    for _ in range(5):
+        wrong = client.post("/api/auth/login", json={"email": "locked@example.com",
+                                                     "password": "wrong-guess"})  # fmt: skip
+        assert wrong.status_code == 401
+    right = client.post(
+        "/api/auth/login", json={"email": "Locked@example.com", "password": PASSWORD}
+    )
+    assert right.status_code == 429 and right.json()["error"]["code"] == "rate_limited"
+    assert 0 < int(right.headers["Retry-After"]) <= 900
+    assert "set-cookie" not in right.headers
+    # An unknown email gets the same lock-out as a known one (no account enumeration).
+    for _ in range(5):
+        client.post("/api/auth/login", json={"email": "ghost@example.com", "password": "x"})
+    ghost = client.post("/api/auth/login", json={"email": "ghost@example.com", "password": "x"})
+    assert ghost.status_code == 429
+    assert ghost.json()["error"]["message"].startswith("Too many failed sign-in attempts")
+    # Others can still sign in from this address (10 of its 20 failures used).
+    register(client, email="other@example.com")
+    client.post("/api/auth/logout")
+    ok = client.post("/api/auth/login", json={"email": "other@example.com", "password": PASSWORD})
+    assert ok.status_code == 200
+
+
+def test_the_sixth_registration_from_one_address_in_an_hour_is_refused(client):
+    for _ in range(5):
+        assert register(client).status_code == 201
+    refused = register(client)
+    assert (
+        refused.status_code == 429 and "Too many new accounts" in refused.json()["error"]["message"]
+    )
 
 
 def test_me_requires_a_session(client):

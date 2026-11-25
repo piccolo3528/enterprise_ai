@@ -20,4 +20,5 @@ export const TEST_USER = {
   email: "ana@example.com",
   full_name: "Ana Silva",
   created_at: "2026-11-09T10:00:00Z",
+  preferences: { search_mode: "hybrid", search_top_k: 10, search_min_score: null, chat_multi_query: true },
 };

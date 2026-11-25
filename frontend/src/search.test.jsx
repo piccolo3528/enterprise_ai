@@ -104,7 +104,7 @@ describe("search page", () => {
     await waitFor(() =>
       expect(searchKnowledgeBase).toHaveBeenCalledWith(
         HR.id,
-        { query: "carry forward leave", mode: "hybrid", documentId: undefined },
+        { query: "carry forward leave", mode: "hybrid", topK: 10, minScore: undefined, documentId: undefined },
         expect.anything(),
       ),
     );

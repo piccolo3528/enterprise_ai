@@ -1,47 +1,116 @@
-import { ArrowRight, FileText, Library, MessagesSquare, Plus } from "lucide-react";
-import { useState } from "react";
+import {
+  ArrowRight,
+  Boxes,
+  FileText,
+  HardDrive,
+  Library,
+  MessageCircleQuestion,
+  MessagesSquare,
+  Plus,
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
+import { getStats } from "../api/stats";
 import KnowledgeBaseFormModal from "../components/knowledge-bases/KnowledgeBaseFormModal";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
 import { useAuth } from "../context/AuthContext";
 import { useKnowledgeBases } from "../hooks/useKnowledgeBases";
-import { formatDate, plural } from "../utils/format";
+import { formatBytes, formatDate, plural } from "../utils/format";
 import BrandLoader from "../components/ui/BrandLoader";
 
 const RECENT = 5;
 
-function StatTile({ icon: Icon, label, value }) {
+function StatTile({ icon: Icon, label, value, detail, warn = false }) {
   return (
     <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-      <span className="flex size-10 items-center justify-center rounded-lg bg-indigo-50">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-50">
         <Icon aria-hidden="true" className="size-5 text-indigo-600" />
       </span>
-      <div>
+      <div className="min-w-0">
         <p className="text-2xl font-semibold text-slate-900">{value}</p>
         <p className="text-sm text-slate-500">{label}</p>
+        {detail && <p className={`mt-0.5 text-xs ${warn ? "text-amber-700" : "text-slate-400"}`}>{detail}</p>}
       </div>
     </div>
   );
 }
 
+/** The numbers from GET /api/stats (one request, one database query). */
+function useStats() {
+  const [stats, setStats] = useState(null);
+  const [error, setError] = useState(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(null);
+    getStats({ signal: controller.signal })
+      .then(setStats)
+      .catch((err) => {
+        if (err.code !== "aborted") setError(err);
+      });
+    return () => controller.abort();
+  }, [attempt]);
+
+  return { stats, error, reload: useCallback(() => setAttempt((n) => n + 1), []) };
+}
+
+function Totals({ stats }) {
+  const busy = stats.documents_processing;
+  const failed = stats.documents_failed;
+  const documentDetail = [
+    `${stats.documents_ready} ready`,
+    busy > 0 && `${busy} processing`,
+    failed > 0 && `${failed} failed`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <section aria-label="Totals" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <StatTile icon={Library} label="Knowledge bases" value={stats.knowledge_bases} />
+      <StatTile
+        icon={FileText}
+        label="Documents"
+        value={stats.documents}
+        detail={stats.documents > 0 ? documentDetail : null}
+        warn={failed > 0}
+      />
+      <StatTile
+        icon={Boxes}
+        label="Searchable passages"
+        value={stats.chunks.toLocaleString()}
+        detail="in ready documents"
+      />
+      <StatTile icon={MessagesSquare} label="Conversations" value={stats.conversations} />
+      <StatTile
+        icon={MessageCircleQuestion}
+        label="Questions this week"
+        value={stats.questions_7d}
+        detail={
+          stats.questions_7d > 0
+            ? `${stats.not_found_7d} not found in the documents · ${stats.questions} in total`
+            : `${stats.questions} in total`
+        }
+      />
+      <StatTile icon={HardDrive} label="Uploaded files" value={formatBytes(stats.storage_bytes)} />
+    </section>
+  );
+}
+
 /**
- * Totals and recent knowledge bases. Everything comes from the one knowledge-base list request
- * (it already carries per-KB counts), so the dashboard costs a single API call.
+ * Totals (GET /api/stats) and recent knowledge bases (the knowledge-base list). The two load
+ * independently: if one fails, the other still shows, each with its own Retry.
  */
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { items, error, loading, reload } = useKnowledgeBases();
+  const { stats, error: statsError, reload: reloadStats } = useStats();
   const [creating, setCreating] = useState(false);
 
-  const totals = items && {
-    knowledgeBases: items.length,
-    documents: items.reduce((sum, kb) => sum + kb.document_count, 0),
-    conversations: items.reduce((sum, kb) => sum + kb.conversation_count, 0),
-  };
   const firstName = user?.full_name.split(/\s+/)[0];
 
   return (
@@ -50,19 +119,14 @@ export default function Dashboard() {
       <p className="mt-1 text-sm text-slate-500">Welcome back{firstName && `, ${firstName}`}.</p>
 
       <div className="mt-6 space-y-6">
-        {error && <ErrorBanner title="Couldn't load your dashboard" error={error} onRetry={reload} />}
+        {statsError && <ErrorBanner title="Couldn't load your totals" error={statsError} onRetry={reloadStats} />}
+        {error && <ErrorBanner title="Couldn't load your knowledge bases" error={error} onRetry={reload} />}
 
-        {!items && loading && (
+        {((!items && loading) || (!stats && !statsError)) && !error && (
           <BrandLoader label="Loading your dashboard…" />
         )}
 
-        {totals && (
-          <section aria-label="Totals" className="grid gap-4 sm:grid-cols-3">
-            <StatTile icon={Library} label="Knowledge bases" value={totals.knowledgeBases} />
-            <StatTile icon={FileText} label="Documents" value={totals.documents} />
-            <StatTile icon={MessagesSquare} label="Conversations" value={totals.conversations} />
-          </section>
-        )}
+        {stats && <Totals stats={stats} />}
 
         {items?.length === 0 && (
           <EmptyState

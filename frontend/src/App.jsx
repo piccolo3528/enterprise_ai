@@ -11,6 +11,7 @@ import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 import Register from "./pages/Register";
 import Search from "./pages/Search";
+import Settings from "./pages/Settings";
 import SystemStatus from "./pages/SystemStatus";
 import BrandLoader from "./components/ui/BrandLoader";
 
@@ -52,6 +53,7 @@ export default function App() {
           />
           <Route path="search" element={<Search />} />
           <Route path="status" element={<SystemStatus />} />
+          <Route path="settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Route>

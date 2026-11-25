@@ -15,6 +15,9 @@ class AskRequest(BaseModel):
     question: str = Field(max_length=QUESTION_MAX * 4)  # raw limit; the exact one is below
     # Answer from this document of the knowledge base only (M14); 404 if it isn't in the KB.
     document_id: uuid.UUID | None = None
+    # The user's "extra phrasings" preference (M16); false skips the planning call. It can only
+    # turn the feature off: when MULTI_QUERY_ENABLED is false on the server, true changes nothing.
+    multi_query: bool | None = None
 
     @field_validator("question")
     @classmethod

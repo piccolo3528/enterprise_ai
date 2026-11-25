@@ -42,11 +42,12 @@ export function AuthProvider({ children }) {
   }, [checkSession]);
 
   useEffect(() => {
-    // Any API call that finds the session expired sends the user back to sign in.
-    setUnauthorizedHandler(() => {
+    // Any API call that finds the session expired sends the user back to sign in, with the
+    // server's reason ("expired", or "signed out because your password changed", M16).
+    setUnauthorizedHandler((err) => {
       setUser(null);
       setStatus("anonymous");
-      setNotice("Your session has expired. Please sign in again.");
+      setNotice(err?.message || "Your session has expired. Please sign in again.");
     });
     return () => setUnauthorizedHandler(null);
   }, []);
@@ -77,9 +78,29 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  /** Ends every session (password-change style); back to sign-in with a notice. */
+  const signOutEverywhere = useCallback(async () => {
+    await authApi.logoutEverywhere();
+    setUser(null);
+    setStatus("anonymous");
+    setNotice("You've been signed out on every device.");
+  }, []);
+
+  // `updateUser`: the Settings page saved the profile or preferences (the server's copy).
   const value = useMemo(
-    () => ({ user, status, error, notice, checkSession, signIn, signUp, signOut }),
-    [user, status, error, notice, checkSession, signIn, signUp, signOut],
+    () => ({
+      user,
+      status,
+      error,
+      notice,
+      checkSession,
+      signIn,
+      signUp,
+      signOut,
+      signOutEverywhere,
+      updateUser: setUser,
+    }),
+    [user, status, error, notice, checkSession, signIn, signUp, signOut, signOutEverywhere],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

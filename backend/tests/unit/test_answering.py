@@ -35,6 +35,7 @@ from app.services.llm.prompts import (
     escape_attribute,
     escape_passage,
     is_not_found,
+    split_trailing_not_found,
 )
 from app.services.llm.rate_limiter import TokenBucket
 from app.services.retrieval import Passage, SearchOutcome, SearchResult
@@ -339,6 +340,24 @@ def test_not_found_detection(answer, expected):
     assert is_not_found(answer) is expected
 
 
+@pytest.mark.parametrize(
+    ("answer", "body", "explained"),
+    [
+        ("They don't give Kochi's tier [1]. Therefore, no answer. NOT_FOUND",
+         "They don't give Kochi's tier [1]. Therefore, no answer.", True),
+        ("Not listed [2].\n\n**NOT_FOUND**.\n", "Not listed [2].", True),
+        ("Not listed [2]. `NOT_FOUND`", "Not listed [2].", True),
+        ("NOT_FOUND items are logged [1].", "NOT_FOUND items are logged [1].", False),
+        ("The code is XNOT_FOUND", "The code is XNOT_FOUND", False),
+        ("It returns not_found", "It returns not_found", False),  # lower case: a word, not ours
+        ("  NOT_FOUND", "  NOT_FOUND", False),  # the plain reply is is_not_found's job
+    ],
+)  # fmt: skip
+def test_a_trailing_not_found_is_split_from_its_explanation(answer, body, explained):
+    split = split_trailing_not_found(answer)
+    assert (split[0].rstrip() if explained else split[0], split[1]) == (body, explained)
+
+
 # --- citations -----------------------------------------------------------------------------------
 
 
@@ -562,6 +581,15 @@ def test_a_not_found_reply_becomes_the_standard_answer_with_no_citations(pipelin
     assert answer.model == "fake-model-001"  # the call was made (and counts against the quota)
 
 
+def test_an_explanation_ending_in_not_found_is_kept_and_counts_as_not_found(pipeline):
+    # Q044 in the M15 report showed "... the sources do not contain the answer. NOT_FOUND".
+    reply = "The sources define tiers [2] but not Kochi's.\n\nTherefore, no answer. NOT_FOUND"
+    answer = pipeline["ask"](llm=FakeLLM(pipeline["events"], reply=reply))
+    assert answer.not_found
+    assert answer.answer == "The sources define tiers [1] but not Kochi's.\n\nTherefore, no answer."
+    assert len(answer.citations) == 1 and rag.NO_CITATIONS not in answer.notices
+
+
 def test_notices_for_uncited_truncated_flagged_and_degraded_answers(pipeline):
     pipeline["outcome"] = SearchOutcome(
         "hybrid",
@@ -588,6 +616,14 @@ def test_the_question_is_cleaned_and_limited():
 
 def sign_in(client):
     client.cookies.set(SESSION_COOKIE, create_access_token(uuid.uuid4(), FAKE_JWT_SECRET, 5))
+
+
+@pytest.fixture
+def owned_kb(monkeypatch):
+    """The route checks ownership before answering (M16): one query, faked here."""
+    from app.services import retrieval
+
+    monkeypatch.setattr(retrieval, "check_scope", lambda db, owner_id, kb_id, document_id: None)
 
 
 def ask_url():
@@ -622,8 +658,8 @@ def test_without_an_api_key_asking_says_it_is_not_configured(client, app):
         (AnswerBlockedError("blocked"), 422, "answer_blocked", None),
     ],
 )
-def test_llm_errors_reach_the_client_with_stable_codes(client, monkeypatch, error, status, code,
-                                                       retry_after):  # fmt: skip
+def test_llm_errors_reach_the_client_with_stable_codes(client, owned_kb, monkeypatch, error, status,
+                                                       code, retry_after):  # fmt: skip
     def fail(*args, **kwargs):
         raise error
 
@@ -635,7 +671,7 @@ def test_llm_errors_reach_the_client_with_stable_codes(client, monkeypatch, erro
     assert response.headers.get("retry-after") == retry_after
 
 
-def test_a_successful_answer_is_serialised_with_its_citations(client, monkeypatch):
+def test_a_successful_answer_is_serialised_with_its_citations(client, owned_kb, monkeypatch):
     meta = {"document_id": "NX-HR-002", "version": "3.0", "status": "current", "title": "Leave"}
     cited = SearchResult(passage(2, meta=meta, section="§4.1 Annual"), 0.03)
     result = rag.RagAnswer("25 days [1].", False, [rag.Citation(1, cited, False)], model="m",

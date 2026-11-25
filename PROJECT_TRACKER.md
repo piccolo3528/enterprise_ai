@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-24** · Current milestone: **M15 — Evaluation Framework v2 (Answers) (COMPLETED)** · Next: **M16 — Settings, Security Hardening & UX Polish**
+> Last updated: **2026-11-25** · Current milestone: **M16 — Settings, Security Hardening & UX Polish (COMPLETED)** · Next: **M17 — Documentation & GitHub Readiness**
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -479,16 +479,18 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M14.
 - **Testing:** 430 unit (+45: judge parsing/caching/retries/patience, prompt escaping and renumbering, aggregation incl. ungraded answers, latency, sandwich/compression, phrasings, resume, report naming, fallback chain incl. streams and cooldown, Groq client errors incl. TPD and 307) · 108 live · 103 frontend · judge validation 13/13 (§F.8).
 
-### M16 — Settings, Security Hardening & UX Polish · `NOT STARTED`
+### M16 — Settings, Security Hardening & UX Polish · `COMPLETED` (2026-11-25)
 - **Objective:** Production-quality behaviour and safety review.
 - **Tasks:**
-  - [ ] Settings page (profile, password, retrieval defaults, system status, free-tier privacy notice)
-  - [ ] Per-user API rate limits (chat, upload)
-  - [ ] Security checklist (authz on every route, upload abuse, error leakage, cookie flags, secrets in logs, Qdrant bound to localhost)
-  - [ ] Dashboard stats; loading/empty/error/progress states everywhere; responsive check
-- **Expected output:** passes the checklist; no unhandled UI states.
+  - [x] Settings page: profile (name; email read-only), password change, search and chat defaults (stored in `users.settings`), sign out everywhere, system status (database size against Neon's 1 GB, the server's pipeline settings read-only), free-tier privacy notice (D88)
+  - [x] Per-user API rate limits: questions 10/min and 150/24 h, uploads 20/h, failed sign-ins 5 per email and 20 per address per 15 min, registrations 5/h per address; 429 + `Retry-After` before any database or LLM work (`core/rate_limit.py`, D83; closes L26)
+  - [x] Sign out everywhere: `token_version` in every token, bumped by a password change (migration `7c2e5a91d4f3`), checked from a per-process cache (D84; closes L27)
+  - [x] Security checklist (ARCHITECTURE §4.16): authz matrix over every route (D90), upload abuse (incl. a zip that lies about its size), error leakage, cookie flags, secrets in logs and responses, security headers (D87), Qdrant API key (https only, never in a response or the bundle), public health = liveness only (D86). **Found and fixed:** `/ask` made a Gemini call for someone else's knowledge base before answering 404 (D89)
+  - [x] Dashboard stats from one query (`GET /api/stats`); loading/empty/error/progress states audited on every page; responsive check at 375/768/1280 px
+  - [x] Carried over from M15 (§F.4): an explanation ending in `NOT_FOUND` (Q044) is shown without the marker and counts as "not found", in batch and streaming (D85)
+- **Expected output:** passes the checklist; no unhandled UI states. **Achieved:** every item of §4.16 has a test; the authz matrix covers 28 routes (no session, garbage and expired tokens; malformed ids) and 18 owned routes cross-user (404, never reaching the LLM or Qdrant); every page has loading, empty and error states; no page scrolls sideways at 375, 768 or 1280 px (Chrome).
 - **Dependencies:** M15.
-- **Testing:** authz test matrix; component tests; manual responsive check.
+- **Testing:** 587 unit (security checklist, rate limits, sessions, NOT_FOUND on every split point) · 124 live (auth limits, settings, password/sign-out-everywhere, stats, cross-user matrix) · 116 frontend (+13: Settings page, dashboard stats, preferences in chat, lock-out message) · Chrome on the user's servers (§F.8).
 
 ### M17 — Documentation & GitHub Readiness · `NOT STARTED`
 - **Objective:** A repo a reviewer can clone and run on Windows by following the README alone.
@@ -544,14 +546,19 @@ Each milestone is small enough to finish, test and understand in one or two sess
   unanswerable refused, 1 false refusal of 50, 40 correct / 8 partial / 1 incorrect,
   faithfulness 98 %, citation accuracy 99 %, p50 6.5 s; results in the README. Backup models
   answer (with a notice) when Gemini's free quota runs out: Gemini backup, then Groq.
-- Next: settings, security hardening and UX polish (M16).
+- Settings and hardening (M16): a Settings page (profile, password, search and chat defaults,
+  sign out everywhere, system status, privacy notice); per-user limits on questions, uploads,
+  sign-ins and sign-ups; sessions end everywhere after a password change; a security checklist
+  where every item is a test (authz on every route, headers, secrets, uploads); dashboard
+  totals; every page checked for loading/empty/error states and at phone width.
+- Next: documentation and GitHub readiness (M17).
 
 ### F.2 In progress
-- Nothing. M16 is next. Optional leftover: grading the backup-model run's last 36 answers as
+- Nothing. M17 is next. Optional leftover: grading the backup-model run's last 36 answers as
   Groq's daily budget allows (F.10).
 
 ### F.3 Remaining functionality
-- Everything in M16–M17 (M18 optional).
+- Everything in M17 (M18 optional).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -565,10 +572,15 @@ Each milestone is small enough to finish, test and understand in one or two sess
   transaction).
 - Seen again in M13: the backend Claude started with `--reload` logged "Reloading…" and never
   started a new worker (old code kept serving). The user's own `--reload` server reloaded fine.
-- **Open (found in M15, fix in M16):** when the model explains why it can't answer and then ends
-  with the `NOT_FOUND` marker (Q044 in `2026-11-24_answers.md`), the answer is kept and shown
-  with the literal word "NOT_FOUND" at the end, instead of the "I couldn't find…" reply. Only an
-  answer that is exactly the marker is treated as not found.
+- **Fixed in M16 (found in M15):** an answer that explains why it can't answer and then ends with
+  the `NOT_FOUND` marker (Q044) was shown as an ordinary answer with the literal word at the end.
+  Now the explanation is shown without the marker and the answer counts as "not found" (D85).
+  The exhaustive split test caught a bug in the first streaming version ("…X" in one piece,
+  "NOT_FOUND" in the next was wrongly taken as the marker).
+- **Fixed in M16 (found by the authz matrix):** `POST /ask` on someone else's knowledge base made
+  the Gemini planning call before retrieval's ownership check answered 404, spending a user's
+  quota on a request that was going to be refused. Ownership is now checked first (D89);
+  removing the fix makes the cross-user test fail with "reached generate()".
 
 ### F.5 Technical limitations & risks
 
@@ -578,7 +590,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L2 | Gemini free quotas unpublished, per project, can change | 429s / daily cap during use | ≤ 2 calls per question (M12: 1; 0 when retrieval finds nothing); token bucket; per-minute 429 retried, per-day quota → `quota_exhausted` without retry; clear UI errors; model IDs in env |
 | L3 | **Neon scale-to-zero (5 min, can't be disabled on free)** | First request after idle is slower; pooled connections die | `pool_pre_ping`, `pool_recycle=240`, `connect_timeout=30`; startup warm-up (M2); health shows DB latency |
 | L4 | **Neon free compute: 100 CU-hours/month**, then compute is suspended until next month | DB unavailable for the rest of the month if exceeded | Cap autoscaling at 0.25–0.5 CU in the Neon console; scale-to-zero saves hours when idle; check usage in the console |
-| L5 | **Neon free storage: 1 GB/project**, then writes are blocked | Uploads fail when full | ~5 KB/chunk ≈ 200k chunks; vectors live in Qdrant, not Neon; storage shown in settings (M16) |
+| L5 | **Neon free storage: 1 GB/project**, then writes are blocked | Uploads fail when full | ~5 KB/chunk ≈ 200k chunks; vectors live in Qdrant, not Neon. **M16:** Settings and System status show the database size (9.1 MB, 0.9 %, on 2026-11-25) |
 | L6 | Neon requires internet; app data (incl. chunk text) is stored in the cloud | No offline dev; data residency | Pick the nearest region; non-confidential docs only |
 | L7 | Cloud DB round-trip latency on every query | Slower than local Postgres, especially for ingestion | Batch inserts; minimal queries per request; measured in eval latency |
 | L8 | **Qdrant Windows binary is published but not documented/supported for Windows** | Unexpected behaviour possible | Verified in M1 (start, persist, restart); Qdrant Cloud free tier fallback, no code changes |
@@ -599,8 +611,8 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L23 | Neon's docs don't explicitly confirm built-in FTS | Hybrid search design depends on it | Scripted check in M1 before M4 |
 | L24 | **Region distance (measured):** app on a laptop in India; Neon + Qdrant in `us-east-1` | **~200–290 ms per round trip** (varies by day), ~1.35 s per new DB connection, ~245 ms per Qdrant call. **M2: one pooled query = 4 round trips** (pre-ping, `BEGIN`, query, `ROLLBACK`) ≈ 0.8–1.05 s. | Keep pooled connections warm; **budget ≤ 2 sequential DB queries per request** (user id from the JWT, ownership checks folded into the data query); batch ingestion inserts; warm the pool at startup. **Resolved in M4 (D32 + D27):** Neon moved to Singapore (54–65 ms per trip) and reads use autocommit sessions: a typical read takes 109 ms instead of ~815 ms. |
 | L25 | Neon credentials were briefly saved in `.env.example` (2026-11-06), and so appeared in the AI chat transcript | Not pushed anywhere (no git repo yet) | Moved to `.env`, placeholders restored. **Closed (M4): the app uses a new Neon project, and the old US project was deleted by the user (2026-11-09).** |
-| L26 | **No sign-in rate limiting yet** | Online password guessing is slowed only by Argon2 (~0.1 s per try) | Planned with the per-user limiter (`core/rate_limit.py`, M16): limit failed sign-ins per email and per IP |
-| L28 | No cap on knowledge bases per user and no paging of the KB list; counts are computed per row on every list | Fine for tens of KBs; a user with thousands would get a slow, large list | Per-user limits with the rate limiter (M16); paging fields can be added to `{"items": …}` without breaking clients; denormalised counters if counting ever shows up in timings |
+| L26 | ~~No sign-in rate limiting~~ | — | **Resolved in M16 (D83):** 5 failed sign-ins per email and 20 per address in 15 minutes, then 429 without checking the password (verified in Chrome: 5 × 401, then 429 with `Retry-After: 899`) |
+| L28 | No cap on knowledge bases per user and no paging of the KB list; counts are computed per row on every list | Fine for tens of KBs; a user with thousands would get a slow, large list | M16 limits questions, uploads and sign-ups, not knowledge-base creation (each is one cheap row); paging fields can be added to `{"items": …}` without breaking clients |
 | L29 | **Sessions end silently after `JWT_EXPIRE_MINUTES` (60)**, with no sliding refresh (observed in M6's Chrome test: a reload sent the user to sign-in mid-task) | Whatever is open in a form is lost when the session ends | After signing in, the user returns to the page they were on; a refresh token / sliding session is an M16 option (ties in with L27) |
 | L30 | De-hyphenation joins any lower-case word split by "-" at a line end | A real compound split there ("well-\nknown") loses its hyphen ("wellknown") | Only applied across line breaks, only lower-case on both sides; keyword search is barely affected |
 | L31 | PDF text order is PyMuPDF's block order; PDF tables become plain text; no OCR (L14) | Multi-column or complex layouts can interleave; table cells lose their grid | Fine for policy-style PDFs (verified on a generated 6-page policy); `pymupdf4llm` (PyMuPDF 2.x) could add layout/table analysis later, at the cost of the onnxruntime dependency (D40) |
@@ -652,7 +664,16 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L77 | Groq is reached through the corporate TLS gateway, which sometimes redirects `api.groq.com` (307 to the gateway) | The chain's last step and the evaluation judge are unavailable for a while (seen twice on 2026-11-23) | A 307 is treated as "unavailable", so the chat fails cleanly with the usual error; evaluation scripts wait and resume (D82). Not bypassed (user rule) |
 | L78 | The Groq gate judges Groq's own answers (same model as the judge) | Possible self-preference: its scores may be a little generous | Stated in that report; the Gemini gates use a different company's judge |
 | L79 | One full answer evaluation costs ~114 Gemini calls (57 plans + 57 answers) and 57 Groq judgements (about one a minute on Groq's token limit, so ~1 hour per run) | Only a few runs a day fit the free quotas | `--phrasings` skips the plans, the judge cache makes re-reports free, `--resume` keeps paid-for answers |
-| L27 | **Sessions are stateless JWTs**: signing out deletes the cookie, but a copied token stays valid until it expires | A stolen cookie works for up to `JWT_EXPIRE_MINUTES` (60) | httpOnly + SameSite=Strict make theft hard; short expiry. Upgrade path: a `token_version` per user (one read per request) for "sign out everywhere" |
+| L80 | Rate-limit counts and token versions live in the memory of one server process | A restart resets the counts; with several worker processes each would count separately and miss another's token-version bump until it restarts | Deliberate for a single-process app (no Redis, a project rule). Upgrade: a shared store (PostgreSQL rows or Redis), or read the version on every request (~60 ms) |
+| L81 | Locking an email after 5 wrong passwords can be used against its owner | Anyone who knows an email can block its sign-in for 15 minutes | The standard trade-off; the lock lasts 15 minutes and needs no action; alternatives are growing delays or a CAPTCHA (not built) |
+| L82 | Per-address limits use the socket address, or `X-Forwarded-For` only from a trusted proxy | Behind a proxy that isn't on 127.0.0.1, every user would share the proxy's address | Vite sends the header (`xfwd`), uvicorn trusts it from 127.0.0.1 (`--forwarded-allow-ips`); set that for any other proxy |
+| L83 | A trailing `NOT_FOUND` is detected as an upper-case word at the very end | An answer whose last word is genuinely the value `NOT_FOUND` (e.g. a status code) would count as "not found" | Very unlikely in policy documents; lower case and `XNOT_FOUND` are not matched (tested) |
+| L84 | An explained "not found" shows the model's reason, which can be wrong | Q044's explanation said the sources lack Kochi's tier, while another document has it (L69) | Shown in the "not found" box with the usual hint; the evaluation counts it as a refusal |
+| L85 | The authz matrix reads the routes from the OpenAPI schema | A route added with `include_in_schema=False` would escape the matrix | None exist; noted for code review |
+| L86 | The security headers cover API responses only | The React pages are served by Vite in development, with no CSP | A production static host must add a CSP (deployment is out of v1 scope) |
+| L87 | The storage figure is `pg_database_size` of this database | Neon's own storage metric (project-wide, with history) can differ | The Neon console is authoritative; the figure is a guide against the 1 GB limit |
+| L88 | The responsive check used fixed-width frames in desktop Chrome | The window couldn't be resized; real phones and touch weren't tested | Layout at 375/768/1280 px checked by measurement and screenshots; the documents table scrolls inside its card below ~800 px |
+| L27 | ~~A copied token stays valid until it expires~~ | — | **Resolved in M16 (D84):** a password change or "Sign out everywhere" bumps `token_version`, and older tokens are refused. Signing out of one browser still only deletes that cookie |
 
 ### F.6 Decision Log
 
@@ -736,6 +757,14 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D80 | 2026-11-23 | **LLM fallback chain**: answer model → `GEMINI_MODEL_FALLBACK` (`gemini-3.1-flash-lite`, same key, its own daily quota) → Groq (`openai/gpt-oss-120b`, plain `httpx`); moves on for quota, outage, per-minute limit and configuration errors, never for a safety block; a spent daily quota is skipped for 15 min; streams switch only before the first text piece; backup answers carry a notice naming the model. Implements D22 | The answer model's daily quota ran out mid-evaluation (2026-11-23): one free model is a single point of failure. `gemini-3.5-flash` was the first choice for step 2 and was dropped after measuring ~20–30 free calls a day and 10–24 s per call; 3.1-flash-lite answered in ~2 s. Groq: 1,000 requests/day but 8,000 tokens/min (~1 answer/min), so last | Gemini models only; Groq first (faster TTFT, but the tokens-per-minute limit); OpenRouter free models (shared, unpredictable limits) | Accepted (M15, **user decision**: "first Gemini; if it doesn't work, switch to the next best") |
 | D81 | 2026-11-23 | **The evaluation judge is Groq `gpt-oss-120b`** (`JUDGE_PROVIDER=groq`; `gemini` + `GEMINI_MODEL_JUDGE` as the alternative); 60 s × 3 patience for per-minute limits; replies capped at 1,500 tokens | Another company's model than the Gemini answerers (less self-preference); 1,000 judgements a day vs ~20–30 for Gemini Flash; re-validated: 13/13 on every dimension (`2026-11-23_judge_validation.md`). The reply cap keeps prompt + reply under 8k tokens/min | Gemini Flash judge (also 13/13, but its quota ran out after ~30 calls); Flash-Lite judging itself | Accepted (M15). Measured afterwards: Groq also caps **200k tokens a day** (≈ 40 judgements of ~5k tokens), reported as `quota_exhausted`; a failed grading is recorded and filled later with `--rejudge` |
 | D82 | 2026-11-23 | **Evaluation runs survive interruptions**: a crash writes the rows so far before re-raising; `--resume` asks only the missing or failed questions (an answer whose judgement failed is only re-judged) with the same phrasings; rows record their answering model; `--rejudge` keeps the run's report name | The corporate network dropped Neon and Groq connections together 8 questions into a run; the index lives in one uncommitted transaction, so a run can't continue in place, and every answer already paid for was lost | Commit the evaluation index (leaves data behind, against D59); rerun from scratch (wastes quota) | Accepted (M15) |
+| D83 | 2026-11-24 | **Per-user limits**: a hand-written sliding-window log per key, in memory (`core/rate_limit.py`): questions 10 per minute and 150 per 24 h per user (`/ask`, new conversation, follow-up), uploads 20 per hour per user (before the body is read), failed sign-ins 5 per email and 20 per address in 15 minutes (checked before the password; the right password clears the email's count), registrations 5 per hour per address; 429 `rate_limited` with `Retry-After` and a readable wait; all `RATE_LIMIT_*` settings | 150 questions ≈ 300 Gemini calls, inside flash-lite's ~500 free a day; a sliding window has no burst at a minute boundary; a refused attempt isn't recorded, so hammering doesn't extend the wait | Fixed per-minute counters (double burst at the boundary); a token bucket (paces rather than limits); PostgreSQL counters (survive restarts, +1 round trip per request); Redis (excluded) | Accepted (M16, **user decision**: the "Balanced" numbers) |
+| D84 | 2026-11-24 | **Sign out everywhere**: `users.token_version` (migration `7c2e5a91d4f3`) goes into every token as `ver`; a password change or `POST /auth/logout-all` increments it in SQL (`+ 1 … RETURNING`); `CurrentUserId` refuses an older version. The current version is read from PostgreSQL once per user per server start and then kept in memory, updated by the routes that bump it | A password change must end a stolen session (L27). Reading the version on every request would add ~60 ms to requests that read nothing else today; the cache keeps that at zero and is exact for one process | Read it per request (option a); short-lived tokens + refresh tokens (more moving parts); a denylist of token ids | Accepted (M16, **user decision**: sign out everywhere, with the cache, option b) |
+| D85 | 2026-11-24 | **An explanation ending in `NOT_FOUND`** (Q044): the marker is removed, the explanation (with its citations) is the reply, and the answer counts as "not found" (outcome `not_found`, no "doesn't cite" notice). Streaming holds back only a tail that could still become the marker (`TrailingNotFound`); upper case, its own word, at the end. The prompt is unchanged (`answer-v1`) | Streaming had already shown the explanation, so replacing it would make text vanish; the citations stay because they were on screen; leaving the prompt alone keeps M15's evaluation comparable | Replace with the standard reply (a new SSE "replace" event); change the prompt to forbid explanations | Accepted (M16, **user decision**: keep the explanation) |
+| D86 | 2026-11-24 | **`/api/health` without a session returns only `{"status": "ok"}`** and runs no checks; signed in, the full report adds the database size (`pg_database_size`, in the same one query that proves the database answers) and the server's pipeline settings | A public endpoint shouldn't make the server call Neon and Qdrant on demand or reveal versions and model names; the size closes L5's "shown in settings" | Keep it public and full; a separate admin endpoint | Accepted (M16; revises D28 for anonymous callers) |
+| D87 | 2026-11-24 | **Security headers on every `/api` response** (nosniff, CSP `default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`), added in the ASGI middleware so errors get them too; `/docs` keeps working (no CSP there) and can be turned off (`API_DOCS_ENABLED`); a Qdrant API key is refused over plain http to another host | The API returns only JSON and event streams, so it can forbid everything a browser might do with a response; no-store keeps answers out of caches | A security-headers library; headers on the frontend server (Vite in dev: deployment concern, L86) | Accepted (M16) |
+| D88 | 2026-11-24 | **Preferences** (search mode, results, minimum similarity, extra phrasings) live in `users.settings` (JSONB, unused until now: no migration) and come with `/auth/me`; the Search page starts from them (a mode in the URL still wins); the chat sends `multi_query: false` with each question when the user turned it off, so the server needs no extra query; the flag can only turn the feature off | Per-user behaviour without another round trip per question; the user can halve their Gemini use when the quota is tight | Read the preference on every question (+1 query); per-user server settings for every RAG knob (too many ways to break an answer) | Accepted (M16, **user decision**: name, password and defaults editable; email read-only) |
+| D89 | 2026-11-24 | **`/ask` checks ownership before the planning call** (`retrieval.check_scope` in the route, like the streaming routes) | Found by the cross-user authz matrix: the planning call to Gemini ran for someone else's knowledge base before retrieval answered 404 | Move planning after retrieval inside `answer_question` (retrieval needs the phrasings) | Accepted (M16) |
+| D90 | 2026-11-24 | **The authz matrix is generated from the app's own route list** (OpenAPI paths) and a table classifying each route as public, self or owned; an unclassified route fails the test. Unit level: every non-public route × (no cookie, garbage token, expired token) → 401, every owned route with a malformed id → 404. Live: user B calls every owned route with user A's real ids → 404, with the LLM and Qdrant replaced by objects that fail the test if touched | A hand-written list goes stale the day someone adds an endpoint; failing on fakes proves a refused request costs nothing | Per-route tests only (existed since M6, but per feature); a security scanner (finds less, explains nothing) | Accepted (M16) |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -852,6 +881,11 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-23 | M15 | Fallback chain, live | ✔ | Main model's quota spent → `gemini-3.1-flash-lite` answered with the notice; lite → Groq verified. `gemini-3.5-flash` measured ~20–30 free calls a day, 10–24 s each: dropped from the chain |
 | 2026-11-23 | M15 | Backup-model gate (`--answer-model gemini-fallback`) | ⚠ partly graded | First attempt crashed after 8 questions (network dropped Neon + Groq together) → D82 resume. 57 answers: 7 of 7 refused, 0 false refusals, 2 Gemini 503/504; 12 graded (9 correct, 3 partial, 100 % faithful), 36 wait for Groq's daily token limit (200k TPD, found from the 429 text) |
 | 2026-11-24 | M15 | Final `run_answers.py` (primary, live planning) | ✔ | 29 min; `2026-11-24_answers.md`: 7/7 refused, 1/50 false refusal (Q054), 40/8/1, faithfulness 98 % (161/165), 46 of 49 fully faithful, citation accuracy 99 %, 0 invalid, relevance 96 %, p50 6.5 s / p95 32.8 s (Gemini planning calls up to 31 s that day). Q057's grading hit Groq's TPD; re-graded about 30 min later (correct). Found: relevance % counted ungraded answers (fixed, test), `--rejudge` wrote under today's date (fixed, test), the `NOT_FOUND` text bug (F.4) |
+| 2026-11-25 | M16 | `ruff` / `pytest` / `-m live` | ✔ / 587 / 124 passed | Live 8 min 27 s. New: `test_security_checklist.py` (authz matrix 28 routes × 3 cookies + malformed ids, headers, docs switch, secrets in logs/responses, Qdrant https, lying zip), `test_rate_limit.py`, `test_sessions.py`, live `test_settings_api.py` and `test_authz_matrix.py`. One earlier live run hung > 15 min on a single test while DNS for Neon failed; a probe then measured a 56 ms round trip and the re-run passed |
+| 2026-11-25 | M16 | `npm test` / `npm run build` (PowerShell) | ✔ 116 / ✔ | +13. One chat test failed once while pytest loaded the laptop and passed alone (load, as before). Bundle scan: no `AIza`/`AQ.`/`gsk_`, Neon or Qdrant hosts, or `.env` names (only UI labels such as "Groq configured") |
+| 2026-11-25 | M16 | Chrome on the user's servers, throwaway account | ✔ | Sign-in: 5 × 401 then 429 "Try again in 15 minutes", `Retry-After: 899`. Health without cookie: `{"status":"ok"}` + CSP/nosniff/no-store; signed in: database 9.6 MB, 241 ms. Settings at 1280 px; defaults saved. Password: wrong current → 400 with the message, change → 204 and still signed in, old password 401, new 200. A one-document KB: answer "up to 3 days" with a citation in 5.5 s and **no `plan` stage** (extra phrasings off → one Gemini call); "dress code" → the "couldn't find" box, no `NOT_FOUND` text. Dashboard: 6 tiles right (2 questions, 1 not found, 285 B). 375/768/1280 px × 6 pages: no page scrolls sideways (the documents table scrolls inside its card at 768). Sign out everywhere → sign-in page with the notice, `/me` 401. **Slip:** the browser carried the user's own session when a new tab group opened, and two preferences were saved on the user's account before the identity was checked; restored to the defaults at once (values identical, now stored explicitly). Cleanup: KB delete 204, 0 Qdrant points, test user deleted, 0 `m12-check-` users |
+| 2026-11-24 | M16 | Zip with forged sizes (measured) | ✔ refused | 50 MB of text in a 48.7 KB archive whose headers claim 1,000 bytes: Python's `zipfile` stops at the declared size ("Bad CRC-32") without producing the 50 MB; the extractor reports "damaged". The declared-size check (≤ 200 MB) therefore can't be bypassed by lying |
+| 2026-11-24 | M16 | Authz matrix proves the `/ask` fix | ✔ | With the ownership check removed from `/ask`, the cross-user test fails: "a refused request reached generate()"; restored, it passes |
 | 2026-11-24 | M15 | `ruff` / `pytest` / `-m live` | ✔ / 430 / 108 passed | Unit +45 over M14; live 7 min 21 s; Qdrant left with `chunks` only |
 | 2026-11-24 | M15 | `npm test` / `npm run build` (PowerShell) | ✔ 103 / ✔ | First run: 3 passed + 11 environment errors while the evaluation and pytest loaded the laptop; re-run 103/103. Build main 391.7 kB + Chat 143.2 kB |
 | 2026-11-20 | M14 | Chrome on the user's servers, throwaway account (4 policies) | ✔ | First question: "Preparing the search…" 5.1 s (planning), retrieval 1.2 s, first token after 4.6 s, 10.8 s total; answer leads with v3.0 (20 days), v2.0 mentioned as superseded. "Search in: NX-HR-003 v2.0" + follow-up: "Searched in … only", 3 sources all from that policy, 4.5 s. Cleanup: 258 chunks = 258 points |
@@ -909,6 +943,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **M13:** no new dependencies. New settings `HISTORY_MAX_TURNS` (6), `HISTORY_TOKEN_BUDGET` (1500). Migration `0927000418b6` (message `outcome`/`notices`/`prompt_version`) on `production` and `test`. `pytest -m gemini` is now 4 tests, 6 calls.
 **M14:** no new dependencies (the cross-encoder was installed in M1). Settings: `RERANK_ENABLED` (false), `RERANK_POOL` (20), `RERANK_MIN_SCORE`, `VERSION_MODE` (demote), `AMENDMENTS_ENABLED` (false), `MULTI_QUERY_ENABLED` (true); `RERANK_TOP_N` removed. Experiments: `compare_retrieval.py` ~40 min for 12 variants (reranking dominates), `generate_query_variants.py` 57 calls ~9 min. `pytest -m gemini`: 4 tests, 10 calls.
 **M15:** no new dependencies (Groq through `httpx`, installed in M2). Settings: `GEMINI_MODEL_FALLBACK` (`gemini-3.1-flash-lite`), `JUDGE_PROVIDER` (groq), `GEMINI_MODEL_JUDGE`, `GROQ_MODEL` (`openai/gpt-oss-120b`), `GROQ_RPM_LIMIT` (30); `GROQ_API_KEY` in `.env`. Measured free limits: Gemini per model, reset 13:30 IST (flash-lite ~500 a day; 3.5-flash only ~20–30 and 10–24 s a call); Groq gpt-oss-120b 30 RPM, 1,000 RPD, 8k TPM, **200k tokens a day (rolling)** ≈ 40 judgements. `run_answers.py` ~30 min for 57 questions (Groq's TPM is the pace). Judge cache `evaluation/.cache/judge.json` (git-ignored).
+**M16:** no new dependencies. Migration `7c2e5a91d4f3` (`users.token_version`) on `production` and `test`. Settings: `RATE_LIMIT_CHAT_PER_MINUTE` (10), `RATE_LIMIT_CHAT_PER_DAY` (150), `RATE_LIMIT_UPLOADS_PER_HOUR` (20), `RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL` (5), `RATE_LIMIT_LOGIN_FAILURES_PER_ADDRESS` (20), `RATE_LIMIT_REGISTRATIONS_PER_HOUR` (5), `API_DOCS_ENABLED` (true). `vite.config.js` proxy now sends `X-Forwarded-For` (`xfwd`); restart Vite after pulling. Dev database size 9.1–9.6 MB (0.9 % of Neon's 1 GB).
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -1053,11 +1088,22 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   the exact input makes re-runs free; a report's denominators lie quietly (ungraded answers
   counted as "not relevant": 25 % instead of 100 %); a single run of a free model varies
   (Q044/Q054 partial yesterday, incorrect/refused today), so a one-question difference is noise.
+- **M16:** test streaming filters on every split point, not on examples: the trailing-marker
+  filter passed every hand-picked case and failed the exhaustive test (a word glued to the
+  marker across two pieces); derive a security matrix from the app's own route list so it can't
+  go stale, and make refused requests fail loudly if they touch the LLM: it found `/ask`
+  spending Gemini quota on someone else's knowledge base, and reverting the fix proved the test
+  catches it; measure an assumption before building a defence (Python's `zipfile` already stops
+  at a forged size); a cache that avoids a per-request query is exact only while there is one
+  process, so write that down as a limitation; in a shared browser, check *who* is signed in
+  before saving anything (a new tab group carried the user's own session); when one live test
+  hangs, probe the network before suspecting the code (DNS for Neon had failed).
 
 ### F.10 Next recommended action
-1. Start **M16 — Settings, Security Hardening & UX Polish** (settings page, per-user API rate limits, the security checklist, dashboard stats and loading/empty/error states, responsive check). Include the `NOT_FOUND` text fix (§F.4).
+1. Start **M17 — Documentation & GitHub Readiness** (final README with screenshots and evaluation results, `docs/API.md`, `docs/TESTING.md`, final ARCHITECTURE.md, secret scan of the git history, clean-clone setup test on Windows, interview section completed).
 2. Optional, when Groq's daily budget allows (~40 judgements a day): finish grading the backup-model run, `python evaluation/run_answers.py --rejudge evaluation/reports/2026-11-23_answers_gemini-fallback.json` (36 answers left, about one day of budget), and hand-grade the 10 answers in `evaluation/reports/2026-11-24_spot_check.md`.
 3. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
+4. Sign in again in Chrome (the M16 check replaced your session cookie there).
 
 ### F.10b Target (set by the user, 2026-11-10)
 **Finish M7–M17 by Sunday 15 November 2026**, at the user's own pace (no external deadline). That
@@ -1099,6 +1145,7 @@ wired in behind the LLM provider interface in M12.
 - **Chunking**: four strategies written from scratch with token-exact sizing (the embedding model's tokenizer), page/section metadata from character spans, structure-aware chunks with context headers, batched inserts, chunk inspector and reprocessing (M8).
 - **Secure document ingestion**: upload checks before the body is read, magic bytes, zip-bomb guard, server-side names, hash-while-saving, background processing with a safe status lifecycle, and extraction from PDF/DOCX/Markdown/TXT with measured encoding handling (M7).
 - **Multi-tenant authorization**: ownership in every SQL statement, identical 404s for "missing" and "not yours", a cross-user test matrix; case-insensitive uniqueness via an expression index; PATCH semantics; accessible dialogs (M6).
+- **Abuse limits and session revocation**: a hand-written sliding-window limiter per user, email and address with `Retry-After`; "sign out everywhere" with a token version checked from a per-process cache; a security checklist where every item is a test (an authz matrix generated from the route list, headers, secrets in logs, forged zip sizes); public health reduced to liveness (M16).
 
 ### G.2 Architectural decisions & reasoning (talking points)
 Most likely to come up: D1 (no LangChain), D7 (hybrid + RRF), D62 (LLM-decided "not found", which replaced the D13 threshold gate), D14
@@ -1179,6 +1226,13 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 68 | How do you handle several versions of the same policy? | In Notion (M14) |
 | 69 | What is multi-query retrieval, and was it worth the extra LLM call? | In Notion (M14) |
 | 70 | How do you decide whether to keep a RAG technique? | In Notion (M14) |
+| 71 | How do you rate-limit per user without Redis? | In Notion (M16) |
+| 72 | How do you sign a user out everywhere when sessions are stateless JWTs? | In Notion (M16) |
+| 73 | How do you make sure every API route checks authorization? | In Notion (M16) |
+| 74 | How do you keep secrets out of logs and responses? | In Notion (M16) |
+| 75 | What security headers does your API send, and why? | In Notion (M16) |
+| 76 | The model refuses but explains why. What do you show the user? | In Notion (M16) |
+| 77 | How would you run your rate limiter on several servers? | In Notion (M16, designed) |
 
 ### G.4 Answers I should be able to explain (drafts, refined as we build)
 
@@ -1246,8 +1300,8 @@ Each has a unit test asserting that a known fake secret does *not* appear in the
 | Complete RAG pipeline with citations and "not found" handling | IN PROGRESS | M12: validated citations, LLM-decided "not found" (57 questions, Chrome); M13: streamed, saved, follow-ups rewritten (Chrome, scripted); reranking/multi-query in M14 |
 | Advanced retrieval (hybrid, rerank, rewrite, multi-query, compression) | COMPLETED (compression and ordering measured on answers in M15, not adopted, D78) | M10 hybrid, M13 rewrite, M14 multi-query + version rule kept, reranking measured and not adopted (reports 2026-11-20) |
 | Evaluation (retrieval + answer metrics, report) | COMPLETED | M11 retrieval (`run_eval.py`), M14 techniques, M15 answers (`run_answers.py`, judge validated 13/13); results in the README |
-| Security checks (authz matrix, uploads, injection, secrets, Qdrant localhost) | NOT STARTED | |
-| Error handling (API + UI states, LLM failures, rate limits, Neon cold start) | NOT STARTED | |
+| Security checks (authz matrix, uploads, injection, secrets, Qdrant key handling) | COMPLETED | M16: ARCHITECTURE §4.16, every row a test (authz matrix 28 routes + cross-user live; headers; secrets in logs; forged zip; Qdrant https); injection defences M12 |
+| Error handling (API + UI states, LLM failures, rate limits, Neon cold start) | COMPLETED | M2 error contract + warm-up; M12/M15 LLM errors and fallback; M16 per-user limits (429 + `Retry-After`) and a states audit of every page (component tests + Chrome) |
 | Runs on Windows without Docker, following the README only | NOT STARTED | |
 | Documentation (ARCHITECTURE, API, TESTING) | IN PROGRESS | ARCHITECTURE.md v0.2 drafted (proposed) |
 | README | IN PROGRESS | Draft with setup guide marked unverified |

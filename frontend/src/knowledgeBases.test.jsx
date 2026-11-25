@@ -12,9 +12,27 @@ import {
   updateKnowledgeBase,
 } from "./api/knowledgeBases";
 import { listDocuments } from "./api/documents";
+import { getStats } from "./api/stats";
 import { renderApp, TEST_USER } from "./test/renderApp";
 
 vi.mock("./api/health", () => ({ getHealth: vi.fn(() => new Promise(() => {})) }));
+vi.mock("./api/stats", () => ({
+  getStats: vi.fn(() =>
+    Promise.resolve({
+      knowledge_bases: 2,
+      documents: 3,
+      documents_ready: 2,
+      documents_processing: 0,
+      documents_failed: 1,
+      chunks: 1234,
+      storage_bytes: 2048,
+      conversations: 2,
+      questions: 9,
+      questions_7d: 4,
+      not_found_7d: 1,
+    }),
+  ),
+}));
 vi.mock("./api/auth", () => ({ getMe: vi.fn(), login: vi.fn(), register: vi.fn(), logout: vi.fn() }));
 vi.mock("./api/documents", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -285,17 +303,31 @@ describe("knowledge base page", () => {
 });
 
 describe("dashboard", () => {
-  it("adds up the counts across knowledge bases", async () => {
+  it("shows the totals from /api/stats, with a failed document called out", async () => {
     renderApp("/dashboard");
     const totals = await screen.findByRole("region", { name: "Totals" });
     expect(totals).toHaveTextContent("2Knowledge bases");
-    expect(totals).toHaveTextContent("3Documents");
+    expect(totals).toHaveTextContent("3Documents2 ready · 1 failed");
+    expect(totals).toHaveTextContent("1,234Searchable passages");
     expect(totals).toHaveTextContent("2Conversations");
+    expect(totals).toHaveTextContent("4Questions this week1 not found in the documents · 9 in total");
+    expect(totals).toHaveTextContent("2.0 KBUploaded files");
     expect(screen.getByText(/Welcome back, Ana/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /IT Procedures/ })).toHaveAttribute(
       "href",
       `/knowledge-bases/${IT.id}`,
     );
+  });
+
+  it("still lists knowledge bases when the totals fail, with a Retry for the totals", async () => {
+    getStats.mockRejectedValueOnce(new ApiError({ code: "network_error", message: "Can't reach the server." }));
+    renderApp("/dashboard");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't load your totals");
+    expect(await screen.findByRole("link", { name: /IT Procedures/ })).toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("region", { name: "Totals" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("offers to create the first knowledge base", async () => {

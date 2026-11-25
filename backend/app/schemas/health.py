@@ -13,6 +13,10 @@ class ServiceCheck(BaseModel):
     detail: str | None = None  # short and safe to show; the full error is in the server log
 
 
+class DatabaseCheck(ServiceCheck):
+    size_bytes: int | None = None  # pg_database_size of this database (M16)
+
+
 class VectorStoreCheck(ServiceCheck):
     collection: str
     collection_exists: bool | None = None  # False until the first documents are indexed (M9)
@@ -27,9 +31,22 @@ class LlmInfo(BaseModel):
 
 
 class Services(BaseModel):
-    database: ServiceCheck
+    database: DatabaseCheck
     vector_store: VectorStoreCheck
     llm: LlmInfo
+
+
+class RetrievalInfo(BaseModel):
+    """The server's answer pipeline settings (backend/.env), shown read-only in Settings (M16)."""
+
+    chunk_strategy: str
+    chunk_size_tokens: int
+    retrieval_top_k: int
+    context_max_sources: int
+    multi_query_enabled: bool
+    rerank_enabled: bool
+    version_mode: str
+    temperature: float
 
 
 class ModelsInfo(BaseModel):
@@ -37,8 +54,17 @@ class ModelsInfo(BaseModel):
     reranker: str
 
 
+class PublicHealth(BaseModel):
+    """Without a session (M16): only "the API process is up". No checks run, so the public
+    endpoint can't be used to make the server call Neon/Qdrant, and it reveals no versions or
+    model names."""
+
+    status: Literal["ok"] = "ok"
+
+
 class HealthReport(BaseModel):
     status: Literal["ok", "degraded"]
     version: str
     services: Services
     models: ModelsInfo
+    retrieval: RetrievalInfo

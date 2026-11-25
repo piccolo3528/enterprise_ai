@@ -107,6 +107,22 @@ def is_not_found(answer: str) -> bool:
     return answer.strip().lstrip("*_`'\" ").upper().startswith(NOT_FOUND)
 
 
+# The marker as the last word of a longer reply (found in M15, Q044): the model explains what the
+# sources lack, then signs off with NOT_FOUND. Upper case only, as its own word (not the end of
+# "XNOT_FOUND"), with optional decoration and full stop: "... the answer. **NOT_FOUND**."
+TRAILING_NOT_FOUND = re.compile(r"[\s*_`'\"]*(?<![A-Za-z0-9])NOT_FOUND[\s*_`'\".!]*\Z")
+
+
+def split_trailing_not_found(answer: str) -> tuple[str, bool]:
+    """(the reply without a trailing NOT_FOUND, whether there was one). The explanation before
+    the marker is kept and shown: it says what the sources lack. Callers check `is_not_found`
+    first, so a reply that *starts* with the marker never gets here."""
+    match = TRAILING_NOT_FOUND.search(answer)
+    if match is None or not answer[: match.start()].strip():
+        return answer, False
+    return answer[: match.start()], True
+
+
 # --- follow-up rewriting (M13) -------------------------------------------------------------------
 #
 # "Can they be carried forward?" retrieves nothing useful on its own: "they" lives in the previous

@@ -6,7 +6,8 @@ The upload route reads the multipart body itself instead of declaring an `Upload
 parameter. FastAPI parses declared form/file parameters *before* running dependencies, so a
 signed-out caller (or one uploading to someone else's knowledge base) could make the server
 receive and spool an entire upload first. Here the order is:
-    session cookie (401) -> knowledge base ownership (404) -> Content-Length (411/413)
+    session cookie (401) -> knowledge base ownership (404) -> uploads per hour (429)
+    -> Content-Length (411/413)
     -> read the body -> checks + save -> 202, then processing continues in the background.
 """
 
@@ -23,6 +24,7 @@ from app.api.deps import (
     DbSession,
     DocumentId,
     KbId,
+    LimitsDep,
     ReadDbSession,
     SessionFactoryDep,
     SettingsDep,
@@ -55,12 +57,14 @@ async def upload_document(
     vectors: VectorStoreDep,
     session_factory: SessionFactoryDep,
     background: BackgroundTasks,
+    limits: LimitsDep,
 ):
     """Upload one file (form field `file`): PDF, DOCX, TXT or MD, up to MAX_UPLOAD_MB.
 
     202 Accepted: the file is stored and queued; poll the document list for `ready`/`failed`.
     """
     await run_in_threadpool(service.require_owned_kb, db, user_id, kb_id)
+    limits.upload(str(user_id))  # before the body is read: refused uploads cost no disk (M16)
 
     max_bytes = settings.max_upload_mb * 1024 * 1024
     declared = request.headers.get("content-length")

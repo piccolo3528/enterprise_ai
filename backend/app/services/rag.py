@@ -42,7 +42,7 @@ from app.core.config import Settings
 from app.core.errors import AppError, LLMNotConfiguredError, QuotaExhaustedError
 from app.services import answer_retrieval, conversations
 from app.services.answer_retrieval import RetrievalSettings, Retrieved
-from app.services.answer_stream import CitationStream, NotFoundGate
+from app.services.answer_stream import CitationStream, NotFoundGate, TrailingNotFound
 from app.services.citations import resolve_citations
 from app.services.context_builder import Context, Order, Source, build_context, query_terms
 from app.services.embeddings import Embedder
@@ -60,6 +60,7 @@ from app.services.llm.prompts import (
     is_not_found,
     parse_rewrite,
     parse_search_queries,
+    split_trailing_not_found,
 )
 from app.services.reranker import Reranker, get_reranker
 from app.services.retrieval import SearchResult
@@ -169,8 +170,9 @@ class AnswerSettings:
         )
 
 
-def answer_settings(settings: Settings) -> AnswerSettings:
-    """The answer pipeline as configured in backend/.env (shared by /ask and the chat)."""
+def answer_settings(settings: Settings, multi_query: bool | None = None) -> AnswerSettings:
+    """The answer pipeline as configured in backend/.env (shared by /ask and the chat).
+    `multi_query=False` (the user's preference, M16) turns the planning call off."""
     rerank = settings.rerank_enabled
     return AnswerSettings(
         candidates=settings.retrieval_top_k,
@@ -187,7 +189,7 @@ def answer_settings(settings: Settings) -> AnswerSettings:
             amendments=settings.amendments_enabled,
         ),
         reranker=(lambda: get_reranker(settings.reranker_model)) if rerank else None,
-        multi_query=settings.multi_query_enabled,
+        multi_query=settings.multi_query_enabled and multi_query is not False,
     )
 
 
@@ -243,9 +245,11 @@ def _cited(context: Context, order: list[int]) -> list[Citation]:
     ]
 
 
-def _answer_notices(citations: list[Citation], finish_reason: str | None) -> list[str]:
+def _answer_notices(
+    citations: list[Citation], finish_reason: str | None, *, refusal: bool = False
+) -> list[str]:
     notices = []
-    if not citations:
+    if not citations and not refusal:  # an explained "not found" needn't cite anything
         notices.append(NO_CITATIONS)
     if any(c.flagged for c in citations):
         notices.append(FLAGGED)
@@ -325,11 +329,13 @@ def answer_question(
     if is_not_found(result.text):
         answer.answer, answer.not_found = NOT_FOUND_ANSWER, True
     else:
-        resolved = resolve_citations(result.text, len(context.sources))
-        answer.answer = resolved.text
+        # "<explanation> NOT_FOUND" (Q044): the explanation is the reply; it counts as not found.
+        text, explained = split_trailing_not_found(result.text)
+        resolved = resolve_citations(text.strip() if explained else text, len(context.sources))
+        answer.answer, answer.not_found = resolved.text, explained
         answer.invalid_citations = resolved.invalid
         answer.citations = _cited(context, resolved.order)
-        notices.extend(_answer_notices(answer.citations, result.finish_reason))
+        notices.extend(_answer_notices(answer.citations, result.finish_reason, refusal=explained))
 
     timings["total"] = _ms(started)
     _log("Answer", question, len(context.sources), sum(s.flagged for s in context.sources),
@@ -520,19 +526,20 @@ def stream_answer(
         timings["build_prompt"] = _ms(t)
 
         yield "status", {"stage": "generating"}
-        gate, cites = NotFoundGate(), CitationStream(len(context.sources))
+        gate, tail = NotFoundGate(), TrailingNotFound()
+        cites = CitationStream(len(context.sources))
         stream = llm.stream(system=SYSTEM_PROMPT, prompt=prompt)
         try:
             for piece in stream:
                 if isinstance(piece, LLMResult):
                     result = piece
                     continue
-                if text := cites.feed(gate.feed(piece)):
+                if text := cites.feed(tail.feed(gate.feed(piece))):
                     shown.append(text)
                     yield "token", {"text": text}
         finally:
             stream.close()  # on Stop: ends the Gemini response too
-        if text := cites.feed(gate.finish()) + cites.finish():
+        if text := cites.feed(tail.feed(gate.finish()) + tail.finish()) + cites.finish():
             shown.append(text)
             yield "token", {"text": text}
         if result is None:
@@ -545,11 +552,11 @@ def stream_answer(
             message_id = save(NOT_FOUND_ANSWER, "not_found", [])
             answer, citations, not_found = NOT_FOUND_ANSWER, [], True
         else:
-            answer = "".join(shown)
+            # tail.found: an explanation ending in NOT_FOUND (Q044), shown and saved as not found
+            answer, not_found = "".join(shown), tail.found
             citations = _cited(context, cites.resolver.order)
-            notices.extend(_answer_notices(citations, result.finish_reason))
-            message_id = save(answer, "answered", citations)
-            not_found = False
+            notices.extend(_answer_notices(citations, result.finish_reason, refusal=not_found))
+            message_id = save(answer, "not_found" if not_found else "answered", citations)
         _log("Streamed answer", question, len(context.sources),
              sum(s.flagged for s in context.sources), not_found, len(citations),
              cites.resolver.invalid, result, timings)  # fmt: skip

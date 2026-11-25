@@ -7,7 +7,6 @@ compute that suspends after 5 idle minutes.
 
 from __future__ import annotations
 
-import time
 from urllib.parse import urlsplit, urlunsplit
 
 import certifi
@@ -94,15 +93,14 @@ def build_read_session_factory(engine: Engine) -> sessionmaker[Session]:
     return factory
 
 
-def ping(engine: Engine) -> float:
-    """Run `SELECT 1` and return the elapsed seconds (pool checkout + pre-ping + query)."""
-    started = time.perf_counter()
+def ping(engine: Engine) -> int:
+    """One query that proves the database answers, and returns its size in bytes (M16: shown on
+    the Settings page against Neon's free 1 GB, L5). As cheap as `SELECT 1`: one round trip."""
     with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-    return time.perf_counter() - started
+        return int(conn.execute(text("SELECT pg_database_size(current_database())")).scalar_one())
 
 
-def warm_up(engine: Engine) -> float:
+def warm_up(engine: Engine) -> None:
     """Open the first pooled connection at startup.
 
     The first connection pays for the TLS handshake, Neon waking up if it was suspended, and
@@ -110,4 +108,4 @@ def warm_up(engine: Engine) -> float:
     request waits for it. It's a single call at startup, not a keep-alive: pinging every few
     minutes would stop Neon from ever suspending and use up the free plan's compute hours.
     """
-    return ping(engine)
+    ping(engine)

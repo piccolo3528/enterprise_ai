@@ -46,7 +46,15 @@ const INTERRUPTED = "The answer stopped before it was complete. Please try again
  * fetch(), not Axios or EventSource: EventSource can only GET, and Axios can't read a response
  * body while it is still arriving in the browser.
  */
-export async function streamAnswer({ kbId, conversationId, question, documentId, signal, onEvent }) {
+export async function streamAnswer({
+  kbId,
+  conversationId,
+  question,
+  documentId,
+  multiQuery,
+  signal,
+  onEvent,
+}) {
   const url = conversationId
     ? `/api/conversations/${enc(conversationId)}/messages`
     : `/api/knowledge-bases/${enc(kbId)}/conversations`;
@@ -84,8 +92,13 @@ export async function streamAnswer({ kbId, conversationId, question, documentId,
       response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-        // documentId: answer from that document of the knowledge base only (M14)
-        body: JSON.stringify(documentId ? { question, document_id: documentId } : { question }),
+        // documentId: answer from that document of the knowledge base only (M14);
+        // multiQuery false: the user turned extra phrasings off in Settings (M16)
+        body: JSON.stringify({
+          question,
+          ...(documentId && { document_id: documentId }),
+          ...(multiQuery === false && { multi_query: false }),
+        }),
         credentials: "same-origin",
         signal: controller.signal,
       });

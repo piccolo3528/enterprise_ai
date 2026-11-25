@@ -23,7 +23,7 @@ from app.core.errors import (
 from app.core.security import SESSION_COOKIE, create_access_token
 from app.schemas.conversations import ConversationRename
 from app.services import rag
-from app.services.answer_stream import CitationStream, NotFoundGate
+from app.services.answer_stream import CitationStream, NotFoundGate, TrailingNotFound
 from app.services.citations import resolve_citations
 from app.services.conversations import TITLE_MAX, title_from
 from app.services.history import select_history
@@ -35,6 +35,7 @@ from app.services.llm.prompts import (
     build_rewrite_prompt,
     is_not_found,
     parse_rewrite,
+    split_trailing_not_found,
     strip_citations,
 )
 from app.services.retrieval import SearchOutcome
@@ -54,25 +55,34 @@ ANSWERS = [
     "No, the policy doesn't allow it [1].",
     "Mixed [1, 6.1, 9].   ",
     "[3] starts it; ends with a bracket [2]",
+    # M16: an explanation that signs off with the marker (Q044) and look-alikes that don't
+    "Kochi's tier isn't listed [1][9].\n\nSo the sources lack it. NOT_FOUND",
+    "They don't say [2]. **NOT_FOUND**.",
+    "Codes such as NOT_FOUND appear in logs [1].",
+    "The field reads XNOT_FOUND",
+    "It ends with N",
+    "lower case not_found",
 ]
 
 
 def run_stream(pieces, sources=3):
-    gate, cites = NotFoundGate(), CitationStream(sources)
-    out = "".join(cites.feed(gate.feed(p)) for p in pieces)
-    out += cites.feed(gate.finish()) + cites.finish()
-    return out, gate, cites
+    gate, tail, cites = NotFoundGate(), TrailingNotFound(), CitationStream(sources)
+    out = "".join(cites.feed(tail.feed(gate.feed(p))) for p in pieces)
+    out += cites.feed(tail.feed(gate.finish()) + tail.finish()) + cites.finish()
+    return out, gate, cites, tail
 
 
 @pytest.mark.parametrize("answer", ANSWERS)
 def test_streamed_text_equals_the_batch_result_for_every_split(answer):
-    expected = resolve_citations(answer.strip(), 3)
+    body, explained = split_trailing_not_found(answer)
+    expected = resolve_citations(body.strip(), 3)
     for i in range(len(answer) + 1):
         for j in range(i, len(answer) + 1):
-            out, gate, cites = run_stream([answer[:i], answer[i:j], answer[j:]])
+            out, gate, cites, tail = run_stream([answer[:i], answer[i:j], answer[j:]])
             assert (gate.state == "not_found") == is_not_found(answer)
             if gate.state == "answer":
                 assert out == expected.text, (i, j)
+                assert tail.found is explained, (i, j)
                 assert cites.resolver.order == expected.order
                 assert cites.resolver.invalid == expected.invalid
             else:
@@ -87,6 +97,17 @@ def test_text_is_released_as_soon_as_it_is_safe():
     assert cites.feed(gate.feed(", 9] apply.")) == " [1] apply."  # 9 isn't a source: dropped
     assert cites.feed(gate.feed(" See [6.1]")) == " See"  # "(" next would make it a link
     assert cites.feed(gate.feed(".")) == " (§6.1)."
+
+
+def test_a_trailing_marker_is_held_back_and_a_false_alarm_released():
+    tail = TrailingNotFound()
+    assert tail.feed("No source gives it. ") == "No source gives it."
+    assert tail.feed("NOT_FO") == ""  # could become the marker
+    assert tail.feed("UND") == "" and tail.finish() == "" and tail.found
+    other = TrailingNotFound()
+    assert other.feed("Status NOT_FOUND") == "Status"
+    assert other.feed(" means missing.") == " NOT_FOUND means missing."
+    assert other.finish() == "" and not other.found
 
 
 def test_the_not_found_reply_is_never_shown():
@@ -469,6 +490,21 @@ def test_a_not_found_reply_streams_no_tokens(streamed):
     out = streamed["run"](llm=llm)
     assert "token" not in names(out)
     assert out[-1][1]["not_found"] is True and streamed["saved"][0]["answer"].outcome == "not_found"
+
+
+def test_an_explanation_ending_in_not_found_is_shown_and_saved_as_not_found(streamed):
+    # Q044 (M15 report): the reader saw "... the answer. NOT_FOUND" as an ordinary answer.
+    pieces = ("The tier of Kochi isn't ", "in the sources [2].", "\n\nSo they lack the ",
+              "answer. NOT_", "FOUND")  # fmt: skip
+    out = streamed["run"](llm=StreamLLM(streamed["events"], pieces=pieces))
+    shown = "".join(data["text"] for name, data in out if name == "token")
+    done = out[-1][1]
+    expected = "The tier of Kochi isn't in the sources [1].\n\nSo they lack the answer."
+    assert shown == done["answer"] == expected and "NOT_FOUND" not in shown
+    assert done["not_found"] is True and done["citation_count"] == 1
+    assert rag.NO_CITATIONS not in done["notices"]
+    saved = streamed["saved"][0]["answer"]
+    assert saved.outcome == "not_found" and saved.content == expected and len(saved.citations) == 1
 
 
 def test_a_failure_midway_is_an_error_event_and_nothing_is_saved(streamed):

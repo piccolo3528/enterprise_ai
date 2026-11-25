@@ -20,10 +20,11 @@ from sqlalchemy import Engine
 from app.core.config import Settings
 from app.db import session as db_session
 from app.schemas.health import (
+    DatabaseCheck,
     HealthReport,
     LlmInfo,
     ModelsInfo,
-    ServiceCheck,
+    RetrievalInfo,
     Services,
     VectorStoreCheck,
 )
@@ -59,11 +60,11 @@ async def _run_check[T](name: str, fn: Callable[[], T]) -> tuple[T | None, float
     return None, (time.perf_counter() - started) * 1000, error
 
 
-async def check_database(engine: Engine) -> ServiceCheck:
-    _, elapsed_ms, error = await _run_check("database", lambda: db_session.ping(engine))
+async def check_database(engine: Engine) -> DatabaseCheck:
+    size, elapsed_ms, error = await _run_check("database", lambda: db_session.ping(engine))
     if error:
-        return ServiceCheck(status="error", latency_ms=round(elapsed_ms), detail=error)
-    return ServiceCheck(status="ok", latency_ms=round(elapsed_ms))
+        return DatabaseCheck(status="error", latency_ms=round(elapsed_ms), detail=error)
+    return DatabaseCheck(status="ok", latency_ms=round(elapsed_ms), size_bytes=size)
 
 
 async def check_vector_store(client: QdrantClient, collection: str) -> VectorStoreCheck:
@@ -97,4 +98,14 @@ async def collect_health(engine: Engine, qdrant: QdrantClient, settings: Setting
         version=app_version(),
         services=Services(database=database, vector_store=vector_store, llm=llm),
         models=ModelsInfo(embedding=settings.embedding_model, reranker=settings.reranker_model),
+        retrieval=RetrievalInfo(
+            chunk_strategy=settings.chunk_strategy,
+            chunk_size_tokens=settings.chunk_size_tokens,
+            retrieval_top_k=settings.retrieval_top_k,
+            context_max_sources=settings.context_max_sources,
+            multi_query_enabled=settings.multi_query_enabled,
+            rerank_enabled=settings.rerank_enabled,
+            version_mode=settings.version_mode,
+            temperature=settings.llm_temperature,
+        ),
     )

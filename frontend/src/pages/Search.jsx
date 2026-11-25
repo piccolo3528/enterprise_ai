@@ -9,6 +9,7 @@ import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
 import Input from "../components/ui/Input";
 import StatusBadge from "../components/ui/StatusBadge";
+import { useAuth } from "../context/AuthContext";
 import { useKnowledgeBases } from "../hooks/useKnowledgeBases";
 import { plural } from "../utils/format";
 import BrandLoader from "../components/ui/BrandLoader";
@@ -146,7 +147,13 @@ export default function Search() {
   const kbId =
     knowledgeBases?.find((kb) => kb.id === requestedKb)?.id ?? knowledgeBases?.[0]?.id ?? null;
   const query = params.get("q") ?? "";
-  const mode = SEARCH_MODES.includes(params.get("mode")) ? params.get("mode") : "hybrid";
+  // Defaults from Settings (M16); a mode in the URL (a bookmarked search) still wins.
+  const preferences = useAuth().user?.preferences;
+  const topK = preferences?.search_top_k ?? 10;
+  const minScore = preferences?.search_min_score ?? undefined;
+  const mode = SEARCH_MODES.includes(params.get("mode"))
+    ? params.get("mode")
+    : (preferences?.search_mode ?? "hybrid");
   const documentId = params.get("doc") ?? "";
 
   const [draft, setDraft] = useState(query);
@@ -195,7 +202,7 @@ export default function Search() {
     try {
       const result = await searchKnowledgeBase(
         kbId,
-        { query, mode, documentId: documentId || undefined },
+        { query, mode, topK, minScore, documentId: documentId || undefined },
         { signal: controller.signal },
       );
       setOutcome(result);
@@ -205,7 +212,7 @@ export default function Search() {
       setError(err);
     }
     setLoading(false);
-  }, [kbId, query, mode, documentId]);
+  }, [kbId, query, mode, topK, minScore, documentId]);
 
   useEffect(() => {
     run();

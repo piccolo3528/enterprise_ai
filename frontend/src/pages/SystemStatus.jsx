@@ -6,6 +6,7 @@ import Button from "../components/ui/Button";
 import ErrorBanner from "../components/ui/ErrorBanner";
 import StatusBadge from "../components/ui/StatusBadge";
 import BrandLoader from "../components/ui/BrandLoader";
+import { formatBytes } from "../utils/format";
 
 export function formatLatency(ms) {
   if (ms == null) return "—";
@@ -74,6 +75,7 @@ function HealthReport({ report }) {
           badge={checkBadge(database)}
           rows={[
             ["Response time", formatLatency(database.latency_ms)],
+            ...(database.size_bytes != null ? [["Size (free plan: 1 GB)", formatBytes(database.size_bytes)]] : []),
             ...(database.detail ? [["Error", database.detail]] : []),
           ]}
           note="The first check after the database has been idle can take ~5 s while it wakes up."

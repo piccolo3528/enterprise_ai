@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.security import SESSION_COOKIE, create_access_token
 from app.factory import create_app
 from app.services import health as health_service
-from tests.helpers import make_settings
+from tests.helpers import FAKE_JWT_SECRET, make_settings
 
 
 class FakeQdrant:
@@ -39,16 +41,29 @@ def fake_db(monkeypatch):
             time.sleep(self.delay)
             if self.error:
                 raise self.error
-            return self.delay
+            return 23_456_789  # bytes, as pg_database_size returns
 
     fake = FakeDb()
     monkeypatch.setattr(health_service.db_session, "ping", fake.ping)
     return fake
 
 
-def get_health(client, qdrant=None):
+def get_health(client, qdrant=None, signed_in=True):
     client.app.state.qdrant = qdrant or FakeQdrant()
+    client.cookies.clear()
+    if signed_in:  # the full report is for signed-in users (M16)
+        token = create_access_token(uuid.uuid4(), FAKE_JWT_SECRET, 5)
+        client.cookies.set(SESSION_COOKIE, token)
     return client.get("/api/health")
+
+
+def test_signed_out_it_only_says_the_api_is_up_and_checks_nothing(client, fake_db):
+    fake_db.error = AssertionError("the database was checked")
+    response = get_health(client, FakeQdrant(error=AssertionError("qdrant was checked")),
+                          signed_in=False)  # fmt: skip
+    assert response.status_code == 200 and response.json() == {"status": "ok"}
+    client.cookies.set(SESSION_COOKIE, "not-a-token")  # a broken cookie is "signed out" here
+    assert client.get("/api/health").json() == {"status": "ok"}
 
 
 def test_all_services_ok(client, fake_db):
@@ -57,6 +72,7 @@ def test_all_services_ok(client, fake_db):
     body = response.json()
     assert body["status"] == "ok"
     assert body["services"]["database"]["status"] == "ok"
+    assert body["services"]["database"]["size_bytes"] == 23_456_789
     assert body["services"]["vector_store"] == {
         "status": "ok",
         "latency_ms": body["services"]["vector_store"]["latency_ms"],

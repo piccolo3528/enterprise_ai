@@ -51,14 +51,24 @@ def needs_rehash(password_hash: str) -> bool:
     return _hasher.check_needs_rehash(password_hash)
 
 
-def create_access_token(user_id: uuid.UUID, secret: str, expires_minutes: int) -> str:
+def create_access_token(
+    user_id: uuid.UUID, secret: str, expires_minutes: int, version: int = 0
+) -> str:
+    """`version` is the user's token_version (M16): bumping it in the database ends every
+    session issued before."""
     now = datetime.now(UTC)
-    claims = {"sub": str(user_id), "iat": now, "exp": now + timedelta(minutes=expires_minutes)}
+    claims = {
+        "sub": str(user_id),
+        "ver": version,
+        "iat": now,
+        "exp": now + timedelta(minutes=expires_minutes),
+    }
     return jwt.encode(claims, secret, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str, secret: str) -> uuid.UUID:
-    """Return the user id inside a valid token, or raise InvalidTokenError."""
+def decode_session(token: str, secret: str) -> tuple[uuid.UUID, int]:
+    """(user id, token version) from a valid token, or raise InvalidTokenError. Tokens issued
+    before M16 have no version and count as 0, the version every user started with."""
     try:
         claims = jwt.decode(
             token,
@@ -68,6 +78,14 @@ def decode_access_token(token: str, secret: str) -> uuid.UUID:
             algorithms=[ALGORITHM],
             options={"require": ["sub", "iat", "exp"]},
         )
-        return uuid.UUID(claims["sub"])
+        version = claims.get("ver", 0)
+        if type(version) is not int:  # signed by us, so only a bug could get here
+            raise ValueError("bad token version")
+        return uuid.UUID(claims["sub"]), version
     except (jwt.PyJWTError, ValueError) as exc:
         raise InvalidTokenError(type(exc).__name__) from None
+
+
+def decode_access_token(token: str, secret: str) -> uuid.UUID:
+    """The user id inside a valid token, or raise InvalidTokenError."""
+    return decode_session(token, secret)[0]
