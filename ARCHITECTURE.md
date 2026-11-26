@@ -896,7 +896,7 @@ Because PostgreSQL holds the chunk text, the whole Qdrant collection can be **re
 ### 4.14 Docker-ready without Docker
 
 v1 doesn't use Docker, but the code follows the rules that make containerizing it later a
-small, separate milestone (M18):
+small, separate milestone (M18; designed, not planned):
 - Every external address and secret comes from environment variables (`DATABASE_URL`, `QDRANT_URL`,
   `GEMINI_API_KEY`, `UPLOAD_DIR`, …). There are no hard-coded hosts or absolute paths.
 - The backend has no OS-specific code. Paths go through `pathlib`, and the only Windows-specific

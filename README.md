@@ -18,7 +18,7 @@ stage was written from scratch and measured on labelled questions before its def
 
 ![Chat: a streamed answer with numbered citations; the cited passage open in the Sources panel](docs/screenshots/chat.png)
 
-**Status: v1 complete (milestones M0–M17).** It runs on Windows with free services and no
+**Status: completed (v1, milestones M0–M17).** It runs on Windows with free services and no
 Docker. The setup below was verified from a fresh clone in M17. Every decision, measurement and
 known limitation is recorded in [PROJECT_TRACKER.md](PROJECT_TRACKER.md).
 
@@ -581,7 +581,7 @@ script.
   conversation ("what did I ask first?") aren't answered from it.
 - **Partial answers:** when the sources answer part of a question, the model refuses rather than
   answering that part. The closest passages are listed instead. A measured partial-answer prompt
-  is a planned option (M16c).
+  was designed as an optional milestone (M16c) and not built.
 - **Facts spread across documents** that retrieval doesn't bring together get refused or answered
   partially (e.g. Kochi's hotel limit).
 - **Free hosting limits:** Neon has 1 GB of storage and 100 compute-hours a month, and sleeps

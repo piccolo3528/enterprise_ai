@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-26** · Current milestone: **M17 — Documentation & GitHub Readiness (COMPLETED)** · **v1 complete.** Optional next: **M16c** (partial answers, measured) or **M18** (Docker)
+> Last updated: **2026-11-26** · Current milestone: **M17 — Documentation & GitHub Readiness (COMPLETED)** · **Project status: COMPLETED (v1).** Optional M16c and M18 not planned (user decision, 2026-11-26); no deployment for now
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -504,7 +504,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M16.
 - **Testing:** 605 unit (+5 scope filters per store; +3 authz-matrix routes × 3 cookie cases; +4 related passages: the floor, closest-first order, off topic, the stream's event and save) · 129 live (+4 all-scope: cross-KB search, cross-owner isolation, cross-KB follow-up, KB delete keeps the conversation, document filter must be yours; +1 related passages with real bge-small scores, saved and read back) · 122 frontend (+6) · the scope measurement (2 runs) · the related-passages measurement · Chrome (§F.8).
 
-### M16c — Partial Answers (measured) · `PLANNED (optional)`
+### M16c — Partial Answers (measured) · `NOT PLANNED` (optional; user decision 2026-11-26)
 - **Objective:** When the sources answer part of a question, say that part (cited) and name what is missing, instead of a bare "not found" (the laptop question: replacement every 4 years or earlier if not repairable, P3 = 3 working days, hand in at the IT counter; nothing about a replacement time).
 - **Tasks:** an `answer-v2` prompt variant; run the M15 evaluation (~114 Gemini calls + 57 Groq gradings, about 2 days of free quota) against `answer-v1`.
 - **Adopt only if:** 7/7 unanswerable questions still refused and faithfulness stays ~98 % (M15 numbers).
@@ -524,7 +524,7 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Dependencies:** M16b.
 - **Testing:** clean clone: unit 605, live 129, frontend 122, build ok, API smoke check passed (after re-running it alone); ruff format failed (fixed) · after the formatting: 605 unit, 129 live, 122 frontend, ruff check + format clean, build ok · API example run verbatim · secret scan (§F.8).
 
-### M18 — (Optional, after v1) Docker Learning Milestone · `NOT STARTED`
+### M18 — (Optional, after v1) Docker Learning Milestone · `NOT PLANNED` (user decision 2026-11-26)
 - **Objective:** Learn containers by containerizing the working app (Dockerfiles for the backend + frontend; Qdrant container).
 - **Out of v1 scope** by decision D17. Enabled by the env-driven design (ARCHITECTURE §4.14).
 
@@ -586,7 +586,8 @@ Each milestone is small enough to finish, test and understand in one or two sess
   budget allows (F.10), and the proposed fix for L94.
 
 ### F.3 Remaining functionality
-- Nothing required for v1. Optional: M16c (partial answers, measured), M18 (Docker).
+- Nothing. The project is completed; the optional M16c (partial answers) and M18 (Docker) are
+  not planned, and there is no deployment for now (user decision, 2026-11-26).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -1191,7 +1192,7 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   borderline question can change the outcome, so one run of an LLM is an anecdote.
 
 ### F.10 Next recommended action
-1. v1 is complete. Optional milestones: **M16c — Partial Answers (measured)** (~114 Gemini calls + 57 Groq gradings, about 2 days of free quota; adopt only if 7/7 refusals hold and faithfulness stays ~98 %) and **M18 — Docker**.
+1. **The project is completed.** The optional M16c (partial answers) and M18 (Docker) are not planned, and there is no deployment for now (user decision, 2026-11-26). A deployment would need a long-running backend host, not serverless functions (background ingestion, local uploads, in-memory limits, PyTorch's size and start-up time). The frontend alone could go on Vercel.
 2. Check the backend terminal for "Ingestion job for document … crashed" around 14:12 IST on 26 Nov (F.4, L94); if it's there, build the proposed fix.
 3. Groq's key check answered 403 on 26 Nov: check the key at console.groq.com before relying on the last fallback step.
 4. Optional, when Groq's budget allows: finish grading the backup-model run (`--rejudge evaluation/reports/2026-11-23_answers_gemini-fallback.json`, 36 answers left).
