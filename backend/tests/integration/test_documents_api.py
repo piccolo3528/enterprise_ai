@@ -579,9 +579,7 @@ def test_a_document_deleted_while_being_indexed_leaves_no_points(client, db, ali
 
         def embed_documents(self, texts):
             db.execute(
-                update(Document)
-                .where(Document.kb_id == uuid.UUID(kb_id))
-                .values(status="deleting")
+                update(Document).where(Document.kb_id == uuid.UUID(kb_id)).values(status="deleting")
             )
             db.commit()
             return real.embed_documents(texts)

@@ -82,8 +82,12 @@ class CitationResolver:
         if not sections:
             return match.group(0)  # a plain citation
         numbers = [item for item in items if "." not in item]
-        return "(" + ", ".join(f"§{s}" for s in sections) + ")" + (
-            f"[{', '.join(numbers)}]" if numbers else "")
+        return (
+            "("
+            + ", ".join(f"§{s}" for s in sections)
+            + ")"
+            + (f"[{', '.join(numbers)}]" if numbers else "")
+        )
 
     def apply(self, text: str) -> str:
         return _CITATION.sub(self._replace, _SECTION_REF.sub(self._section_ref, text))

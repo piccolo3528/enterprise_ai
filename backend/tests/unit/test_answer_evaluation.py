@@ -174,8 +174,9 @@ def record(qid, *, answerable=True, not_found=False, verdict=None, cited=1, rele
 def test_summary_counts_refusals_faithfulness_citations_and_correctness():
     rows = [
         record("Q1", verdict=VERDICT),
-        record("Q2", verdict={**VERDICT, "correctness": "correct",
-                              "claims": VERDICT["claims"][:1]}),  # fmt: skip
+        record(
+            "Q2", verdict={**VERDICT, "correctness": "correct", "claims": VERDICT["claims"][:1]}
+        ),  # fmt: skip
         record("Q3", not_found=True, verdict=None, cited=0),  # a false refusal
         record("Q4", answerable=False, not_found=True, cited=0),  # refused correctly
         record("Q5", answerable=False, not_found=False, verdict=VERDICT),  # should have refused
@@ -216,7 +217,9 @@ def test_a_regraded_report_replaces_its_own_files(tmp_path):
     out = write_report(rows, 1.0, make_settings(), "gemini-fallback: m, re-judged", target)
     assert out == target and target.exists() and target.with_suffix(".json").exists()
     assert sorted(p.name for p in tmp_path.iterdir()) == [
-        "2026-01-01_answers_gemini-fallback.json", "2026-01-01_answers_gemini-fallback.md"]
+        "2026-01-01_answers_gemini-fallback.json",
+        "2026-01-01_answers_gemini-fallback.md",
+    ]
 
 
 def test_latency_subtracts_the_limiters_wait_from_the_total():

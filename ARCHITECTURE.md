@@ -1,11 +1,13 @@
 # Architecture — Enterprise Knowledge Intelligence Platform
 
-> Status: **v0.2 approved 2026-11-06; implemented through M16b (2026-11-25).** Parts labelled
-> "implemented in M2" … "M16" (or "built in") describe built, tested code; the rest is still design.
-> v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free plan), and Qdrant runs on
-> **Qdrant Cloud's free tier** (user decision D16a, which revises the earlier local-binary plan;
-> the local Windows binary remains a no-code-change alternative). Groq is the last step of the
-> LLM fallback chain (D22, built in M15, D80). Every change is recorded in the "Decision Log" in `PROJECT_TRACKER.md`.
+> Status: **v1.0, final (M17, 2026-11-26).** Approved as v0.2 on 2026-11-06 and implemented
+> through M16b; every section describes built, tested code. Labels such as "built in M12" say
+> which milestone added it. v0.2 change: no Docker in v1. PostgreSQL is hosted on **Neon** (free
+> plan), and Qdrant runs on **Qdrant Cloud's free tier** (user decision D16a, which revised the
+> earlier local-binary plan; the local Windows binary remains a no-code-change alternative).
+> Groq is the last step of the LLM fallback chain (D22, built in M15, D80). Every change is
+> recorded in the "Decision Log" in `PROJECT_TRACKER.md`. Endpoints: [docs/API.md](docs/API.md);
+> tests: [docs/TESTING.md](docs/TESTING.md).
 
 ---
 
@@ -96,8 +98,8 @@ endpoint, because Axios cannot consume a streamed response body in the browser.
 
 Pages show `message` and the request ID, as "Reference: …". Requests are cancelled with an
 `AbortController` when a page unmounts or a newer request starts, so a stale response can never
-overwrite a newer one. Sidebar entries for pages that don't exist yet are shown as disabled
-**Soon** items, never as links to placeholder pages.
+overwrite a newer one. While pages were being built (M3–M16), the sidebar showed unbuilt ones as
+disabled **Soon** items, never as links to placeholder pages; in v1 every entry is built.
 
 ### 2.2 Backend layers
 
@@ -889,7 +891,19 @@ remains a switch that needs only `.env` changes:
 Why Cloud was chosen: no unsigned `.exe` on a work laptop and no process to start every day, and
 it is Qdrant's officially supported route. What we gave up: local-only latency and offline use.
 Because PostgreSQL holds the chunk text, the whole Qdrant collection can be **rebuilt** at any time
-(a `reindex` script is planned in M9), which makes either option low-risk.
+(`scripts/reindex.py`, built in M9), which makes either option low-risk.
+
+### 4.14 Docker-ready without Docker
+
+v1 doesn't use Docker, but the code follows the rules that make containerizing it later a
+small, separate milestone (M18):
+- Every external address and secret comes from environment variables (`DATABASE_URL`, `QDRANT_URL`,
+  `GEMINI_API_KEY`, `UPLOAD_DIR`, …). There are no hard-coded hosts or absolute paths.
+- The backend has no OS-specific code. Paths go through `pathlib`, and the only Windows-specific
+  steps (venv activation, the optional local Qdrant binary) are PowerShell commands in the README,
+  outside the app.
+- Each process does one thing (frontend, API, Qdrant) and stays stateless apart from `UPLOAD_DIR`.
+  Containerizing later means writing a Dockerfile per process. No application code changes.
 
 ### 4.15 Structured Markdown corpus support (S1–S5, approved 2026-11-06)
 
@@ -935,17 +949,6 @@ sections, versions, statuses and amendments.
 Limits of this checklist: limits and token versions live in one process (L80); the email lock-out
 can be triggered by anyone who knows the email (L81); the React pages themselves get no CSP in
 development (L86).
-
-### 4.14 Docker-ready without Docker
-
-v1 doesn't use Docker, but the code follows the rules that make containerizing it later a
-small, separate milestone (M18):
-- Every external address and secret comes from environment variables (`DATABASE_URL`, `QDRANT_URL`,
-  `GEMINI_API_KEY`, `UPLOAD_DIR`, …). There are no hard-coded hosts or absolute paths.
-- The backend has no OS-specific code. Paths go through `pathlib`, and the Windows-only
-  helpers are PowerShell scripts under `scripts/`, outside the app.
-- Each process does one thing (frontend, API, Qdrant) and stays stateless apart from `UPLOAD_DIR`.
-  Containerizing later means writing a Dockerfile per process. No application code changes.
 
 ---
 
@@ -1069,139 +1072,153 @@ thousands of policy-sized documents. Embeddings don't count against this, becaus
 
 ---
 
-## 6. Proposed Folder Structure
+## 6. Folder Structure (as built, M17)
+
+Every file below is in the repository; git-ignored folders are marked.
 
 ```
 enterprise-ai/
-├── README.md
-├── PROJECT_TRACKER.md
-├── ARCHITECTURE.md
+├── README.md                   # overview, results, verified Windows setup, evaluation, limitations
+├── ARCHITECTURE.md             # this document
+├── PROJECT_TRACKER.md          # milestones, decision log, test results, limitations, lessons
+├── LICENSE                     # MIT (PyMuPDF, a dependency, is AGPL: see the README)
 ├── .gitignore
 ├── docs/
-│   ├── API.md                  # endpoint reference (complements auto-generated /docs)
-│   └── TESTING.md              # how to run tests and the evaluation
-├── scripts/                    # Windows PowerShell helpers (not part of the app)
-│   ├── setup-qdrant.ps1        # download + SHA-256 verify + unzip the Qdrant binary
-│   └── start-qdrant.ps1        # start qdrant.exe bound to 127.0.0.1 with our storage path
-├── qdrant-local/               # (git-ignored) qdrant.exe + its storage/ and snapshots/
+│   ├── API.md                  # endpoints, error contract, limits, SSE protocol
+│   ├── TESTING.md              # test layers, isolation, evaluation suites, clean-clone check
+│   └── screenshots/            # README images (M17)
+├── rag-documents/              # your own documents to upload (git-ignored except its README)
+├── qdrant-local/               # (git-ignored) only if you run the local Qdrant binary
 │
 ├── backend/
-│   ├── pyproject.toml          # dependencies + pytest/ruff config
-│   ├── .env.example
+│   ├── pyproject.toml          # dependencies (pinned ranges) + pytest/ruff config
+│   ├── .env.example            # every setting, annotated; copy to .env (git-ignored)
 │   ├── alembic.ini
-│   ├── alembic/versions/
+│   ├── alembic/versions/       # 6 reviewed migrations
+│   ├── storage/                # (git-ignored) uploaded files
 │   ├── app/
 │   │   ├── main.py             # uvicorn entry point: `app = create_app()`
 │   │   ├── factory.py          # app factory: lifespan (clients, warm-up), middleware, routers
 │   │   ├── core/
-│   │   │   ├── config.py       # pydantic-settings: every env var in one place
-│   │   │   ├── security.py     # password hashing, JWT
-│   │   │   ├── errors.py       # domain exceptions → HTTP responses
-│   │   │   ├── middleware.py   # request ID, timing log, last-resort 500 (plain ASGI)
-│   │   │   ├── rate_limit.py   # per-user API limiter
+│   │   │   ├── config.py       # pydantic-settings: every env var in one place, fail fast
+│   │   │   ├── security.py     # Argon2id, JWT
+│   │   │   ├── sessions.py     # token versions ("sign out everywhere", M16)
+│   │   │   ├── rate_limit.py   # sliding-window limits per user/email/address (M16)
+│   │   │   ├── errors.py       # domain exceptions → one JSON error shape
+│   │   │   ├── middleware.py   # request ID, timing log, security headers, last-resort 500 (plain ASGI)
 │   │   │   └── logging.py
-│   │   ├── db/
-│   │   │   ├── base.py
-│   │   │   └── session.py
-│   │   ├── models/             # SQLAlchemy ORM models
-│   │   ├── schemas/            # Pydantic request/response models
+│   │   ├── db/                 # base.py (naming conventions), session.py (engines, pools, read sessions)
+│   │   ├── models/             # user, knowledge_base, document, chunk, conversation (+ message)
+│   │   ├── schemas/            # Pydantic request/response models, one file per area
 │   │   ├── api/
-│   │   │   ├── deps.py         # get_db, get_current_user, get_owned_kb
-│   │   │   └── routes/         # auth, knowledge_bases, documents, search, answers (M12), conversations (M13, SSE), health
+│   │   │   ├── deps.py         # sessions, current user, settings, stores, limits
+│   │   │   └── routes/         # auth, knowledge_bases, documents, search, answers, conversations (SSE), stats, health
 │   │   └── services/
-│   │       ├── storage.py
-│   │       ├── ingestion/      # extractors, cleaning, chunking, pipeline
-│   │       ├── embeddings.py
-│   │       ├── vector_store.py
-│   │       ├── keyword_search.py
-│   │       ├── retrieval.py
-│   │       ├── reranker.py     # cross-encoder (M14; measured, off by default)
-│   │       ├── version_rules.py # current versions first, dates, amendments (M14)
-│   │       ├── answer_retrieval.py # multi-query, versions, rerank, amendments, filter (M14)
-│   │       ├── context_builder.py
-│   │       ├── citations.py    # validate + renumber [n] citations (M12)
-│   │       ├── answer_stream.py # NOT_FOUND gate + citations checked while streaming (M13)
-│   │       ├── llm/            # base.py, gemini.py, prompts.py (+ rewrite), rate_limiter.py (M12)
-│   │       ├── rag.py          # answer_question (M12) + stream_answer (M13) + planning (M14)
-│   │       ├── history.py      # token-budgeted history for the rewriter (M13)
-│   │       └── conversations.py # list/read/rename/delete, save a turn (M13)
+│   │       ├── auth.py, knowledge_bases.py, documents.py, storage.py, stats.py, health.py
+│   │       ├── ingestion/      # validation, extractors, cleaning, tokens, chunking, pipeline
+│   │       ├── embeddings.py   # bge-small, loaded once, query prefix
+│   │       ├── vector_store.py # Qdrant: payload indexes, owner/KB filters, ordered deletes
+│   │       ├── keyword_search.py # PostgreSQL full-text search
+│   │       ├── retrieval.py    # semantic / keyword / hybrid + RRF
+│   │       ├── answer_retrieval.py # multi-query, version rule, rerank, amendments, filters (M14)
+│   │       ├── version_rules.py, reranker.py
+│   │       ├── context_builder.py # numbered, untrusted sources within a token budget
+│   │       ├── citations.py    # validate + renumber [n]
+│   │       ├── answer_stream.py # NOT_FOUND gates + citations checked while streaming
+│   │       ├── rag.py          # answer_question, stream_answer, planning, related passages
+│   │       ├── history.py, conversations.py
+│   │       └── llm/            # base, gemini, groq, fallback (chain), prompts, rate_limiter
 │   ├── scripts/
-│   │   ├── verify_setup.py     # checks Neon (incl. full-text search), Qdrant, Gemini, models
+│   │   ├── verify_setup.py     # checks Neon (incl. full-text search), Qdrant, Gemini, Groq, models
 │   │   ├── download_models.py  # pre-downloads the embedding + reranker models
-│   │   └── reindex.py          # rebuilds the Qdrant collection from PostgreSQL chunks
+│   │   ├── reindex.py          # rebuilds or checks the Qdrant collection from PostgreSQL
+│   │   └── reprocess_documents.py # re-chunks documents after a chunking change
 │   ├── evaluation/
-│   │   ├── CORPUS_SPEC.md      # authoring spec: metadata schema, timeline, locked facts (never ingested)
-│   │   ├── DOCUMENT_INDEX.md   # human index of the corpus (never ingested)
-│   │   ├── corpus/             # 22 fictional Nexora policies (Markdown + YAML front matter)
-│   │   │   └── finance/ governance/ hr/ it/ operations/
-│   │   ├── datasets/
-│   │   │   └── eval_dataset.json  # 57 labelled questions (kept OUTSIDE corpus/ so it's never uploaded)
-│   │   ├── validate_corpus.py  # checks corpus + dataset against the spec (built in M1)
-│   │   ├── metrics.py          # hit@k, recall@k, precision@k, MRR by hand (faithfulness: M15)
-│   │   ├── harness.py          # index the corpus (rolled back), ask via retrieval.search
-│   │   ├── analysis.py         # summaries, per-type, version confusion, thresholds, latency
-│   │   ├── run_eval.py         # one config, all search variants -> report (built in M11)
-│   │   ├── compare_chunking.py # 5 chunking configs x 3 modes (built in M11)
-│   │   ├── compare_retrieval.py # M14 techniques alone and combined -> report
-│   │   ├── generate_query_variants.py # phrasings for multi-query, cached (57 calls, once)
-│   │   └── reports/            # Markdown reports (committed); raw JSON (git-ignored)
+│   │   ├── CORPUS_SPEC.md, DOCUMENT_INDEX.md # how the corpus was written (never ingested)
+│   │   ├── corpus/             # 22 fictional Nexora policies: finance/ governance/ hr/ it/ operations/
+│   │   ├── datasets/           # eval_dataset.json (57 questions), judge_validation.json (13 cases)
+│   │   ├── validate_corpus.py, harness.py, metrics.py, analysis.py
+│   │   ├── run_eval.py, compare_chunking.py, compare_retrieval.py, compare_scope.py,
+│   │   │   generate_query_variants.py          # retrieval (M11, M14, M16b)
+│   │   ├── judge.py, answer_metrics.py, run_answers.py, validate_judge.py,
+│   │   │   spot_check.py                       # answers (M15)
+│   │   └── reports/            # Markdown reports + cached phrasings (committed); raw JSON (git-ignored)
 │   └── tests/
-│       ├── conftest.py
-│       ├── fixtures/           # tiny pdf/docx/txt incl. empty + corrupt files
-│       ├── unit/
-│       └── integration/
+│       ├── conftest.py, helpers.py, sample_files.py # fixtures; tiny PDF/DOCX/TXT built in code
+│       ├── unit/               # 605 tests: no network, no .env
+│       └── integration/        # 129 live tests (Neon test branch, chunks_test) + 4 real-Gemini
 │
 └── frontend/
-    ├── package.json
-    ├── vite.config.js          # dev proxy /api → FastAPI
+    ├── package.json, vite.config.js   # dev proxy /api → FastAPI; Vitest config
     ├── index.html
     └── src/
-        ├── main.jsx
-        ├── App.jsx             # routes
-        ├── index.css           # Tailwind
-        ├── api/                # client.js (axios + ApiError), health.js, …, conversations.js (fetch + SSE, M13)
-        ├── test/setup.js       # jest-dom matchers, cleanup between tests
+        ├── main.jsx, App.jsx, index.css
+        ├── api/                # client.js (axios + ApiError), one module per area, conversations.js (fetch + SSE), scope.js
         ├── context/            # AuthContext
-        ├── hooks/              # useDocuments, useKnowledgeBases, useConversations (M13)
-        ├── utils/              # format.js, sse.js (SSE parser, M13)
+        ├── hooks/              # useDocuments, useKnowledgeBases, useConversations
+        ├── utils/              # format.js, sse.js (SSE parser)
         ├── components/
-        │   ├── layout/         # AppLayout, Sidebar, Topbar, navigation.js, ProtectedRoute
-        │   ├── ui/             # Button, Input, Spinner, EmptyState, ErrorBanner, StatusBadge, Modal, Toast
-        │   ├── documents/      # UploadDropzone, DocumentTable, StatusBadge
-        │   ├── chat/           # AnswerText (M12); ChatTurn, ConversationList, DeleteConversationModal (M13)
-        │   └── citations/      # CitationPanel (M12)
-        └── pages/              # SystemStatus, NotFound (M3); Login, Register, Dashboard,
-                                # KnowledgeBases, KnowledgeBaseDetail, Chat, Search, Settings
+        │   ├── layout/         # AppLayout, AuthLayout, Sidebar, Topbar, RouteGuards, navigation.js
+        │   ├── ui/             # Button, Input, PasswordInput, Textarea, Modal, Spinner, EmptyState, ErrorBanner, StatusBadge, Brand*
+        │   ├── knowledge-bases/ # form + delete dialogs
+        │   ├── documents/      # UploadDropzone, DocumentTable
+        │   ├── chat/           # AnswerText, ChatTurn, ConversationList, DeleteConversationModal
+        │   └── citations/      # CitationPanel
+        ├── pages/              # Login, Register, Dashboard, KnowledgeBases, KnowledgeBaseDetail,
+        │                       # DocumentChunks, Chat, Search, Settings, SystemStatus, NotFound
+        └── test/               # setup.js, renderApp.jsx; *.test.jsx next to the code they test
 ```
+
+There are no Windows helper scripts for Qdrant: the README gives the commands for the local
+binary, which only matters if you don't use Qdrant Cloud.
 
 ---
 
-## 7. Dependencies (initial; exact pins chosen at install time)
+## 7. Dependencies (as pinned in M17)
 
-Latest versions seen on PyPI on 2026-11-05 are noted for reference.
+Ranges are pinned in `backend/pyproject.toml` and `frontend/package.json`; the versions below are
+what the M17 clean-clone install resolved.
 
-**Backend runtime:** `fastapi` (0.162), `uvicorn[standard]`, `pydantic-settings` (2.16),
-`sqlalchemy` (2.1), `psycopg[binary]` (3.3), `alembic` (1.20), `argon2-cffi`, `pyjwt`,
-`python-multipart` (uploads), `pymupdf` (**pinned < 2**: 2.x adds onnxruntime + layout extras, D40), `python-docx` (1.2), `charset-normalizer` (TXT encoding
-fallback, D42), `sentence-transformers` (6.2), `torch` **CPU-only wheel** (avoids a multi-GB CUDA
-download on a machine without a GPU), `qdrant-client` (1.20), `google-genai` (2.34).
-Token counting uses the embedding model's own tokenizer (no extra package).
+**Backend runtime:**
+- web: `fastapi` 0.162, `uvicorn[standard]` 0.54;
+- settings and auth: `pydantic-settings` 2.16, `email-validator`, `argon2-cffi` 25.1, `pyjwt` 2.15;
+- documents:
+  - `python-multipart`;
+  - `pymupdf` 1.x, **pinned < 2**, because 2.x adds onnxruntime and layout extras (D40), and it
+    is AGPL;
+  - `python-docx` 1.2, `charset-normalizer` 3 (TXT encoding fallback, D42), `pyyaml` (front
+    matter, `safe_load` only);
+- database: `sqlalchemy` 2.1, `psycopg[binary]` 3.3, `alembic` 1.20, `certifi` (CA bundle for
+  `verify-full`);
+- vectors: `qdrant-client` 1.20, the same minor version as the server;
+- LLM: `google-genai` 2.x. Groq is called with plain `httpx`;
+- models: `sentence-transformers` 6.2, with `torch` from the **CPU-only** index; `tokenizers`
+  0.23 counts tokens with the embedding model's own tokenizer.
 
 **Backend dev:** `pytest`, `httpx` (TestClient), `ruff` (lint + format).
 
-**Frontend (installed in M3):** `react` 19.3, `react-dom` 19.3, `react-router` 8.5 (the DOM APIs
-moved into `react-router`; `react-router-dom` stopped at 7.x), `axios` 1.21, `lucide-react` 1.70,
-`tailwindcss` 4.3 + `@tailwindcss/vite`, `vite` 8.3, `@vitejs/plugin-react` 6.3. Later:
-`react-markdown` (safe Markdown, no raw HTML). Dev: `vitest` 5.1, `jsdom`,
-`@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event`.
+**Frontend:**
+- runtime: `react` 19.3, `react-dom` 19.3, `react-router` 8.5, `axios` 1.21, `lucide-react` 1.70,
+  `react-markdown` 10 (safe Markdown, no raw HTML);
+- build and styles: `vite` 8.3, `@vitejs/plugin-react` 6.3, `tailwindcss` 4.3 with
+  `@tailwindcss/vite`;
+- dev: `vitest` 5.1, `jsdom`, `@testing-library/react`, `@testing-library/jest-dom`,
+  `@testing-library/user-event`.
 
-**Not used (deliberately):** LangChain/LlamaIndex (they hide the concepts we want to learn), Celery,
-Redis and Kubernetes (no measured need), Docker in v1 (see §4.14), TypeScript (per requirements),
-paid embedding APIs, pgvector (Qdrant is the vector store by design), and SQLite (PostgreSQL in
-every environment, so dev and production behave the same).
+**Not used (deliberately):**
+- LangChain/LlamaIndex: they hide the concepts this project exists to learn;
+- Celery, Redis and Kubernetes: no measured need;
+- Docker in v1 (see §4.14);
+- TypeScript (per requirements);
+- paid embedding APIs;
+- pgvector: Qdrant is the vector store by design;
+- SQLite: PostgreSQL is used in every environment, so dev and production behave the same.
 
-**Runtime services (not pip packages):** Neon PostgreSQL (cloud, free plan), Qdrant v1.20.0 Windows
-binary (local), and the Gemini API (cloud, free tier).
+**Runtime services (not pip packages):**
+- Neon PostgreSQL 18 (free plan, AWS Singapore);
+- Qdrant Cloud 1.20 (free tier). The local Windows binary is the no-code-change alternative;
+- Gemini API (free tier);
+- Groq API (free tier: the last LLM fallback and the evaluation judge).
 
 ---
 

@@ -138,11 +138,15 @@ def check_scope(
     `kb_id=None` (M16b) means every knowledge base the caller owns: there is nothing to check
     unless a document was chosen, which must then be in one of them. No query otherwise."""
     if kb_id is None:
-        if document_id is not None and db.scalar(
-            select(Document.id)
-            .join(KnowledgeBase, KnowledgeBase.id == Document.kb_id)
-            .where(Document.id == document_id, KnowledgeBase.owner_id == owner_id)
-        ) is None:
+        if (
+            document_id is not None
+            and db.scalar(
+                select(Document.id)
+                .join(KnowledgeBase, KnowledgeBase.id == Document.kb_id)
+                .where(Document.id == document_id, KnowledgeBase.owner_id == owner_id)
+            )
+            is None
+        ):
             raise NotFoundError(DOCUMENT_NOT_FOUND)
         return
     found_document = (

@@ -81,8 +81,12 @@ def test_dates_in_a_question_become_intervals():
 
 
 def test_historical_wording():
-    historical = ("What was the previous carry-forward limit?", "What did v2.0 say?",
-                  "the old policy on encashment", "Is that still allowed or no longer?")
+    historical = (
+        "What was the previous carry-forward limit?",
+        "What did v2.0 say?",
+        "the old policy on encashment",
+        "Is that still allowed or no longer?",
+    )
     for text in historical:
         assert is_historical(text), text
     for text in ("How many days can I carry forward?", "What is the current hotel limit?",

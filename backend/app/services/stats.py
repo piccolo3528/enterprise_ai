@@ -36,25 +36,37 @@ def user_stats(db: Session, user_id: uuid.UUID) -> dict[str, int]:
 
     row = db.execute(
         select(
-            select(func.count()).select_from(owned_kbs.subquery()).scalar_subquery()
+            select(func.count())
+            .select_from(owned_kbs.subquery())
+            .scalar_subquery()
             .label("knowledge_bases"),
             count_docs().label("documents"),
             count_docs(Document.status == "ready").label("documents_ready"),
-            count_docs(Document.status.in_(("uploaded", "processing")))
-            .label("documents_processing"),
+            count_docs(Document.status.in_(("uploaded", "processing"))).label(
+                "documents_processing"
+            ),
             count_docs(Document.status == "failed").label("documents_failed"),
             select(func.coalesce(func.sum(Document.chunk_count), 0))
-            .where(docs, Document.status == "ready").scalar_subquery().label("chunks"),
+            .where(docs, Document.status == "ready")
+            .scalar_subquery()
+            .label("chunks"),
             select(func.coalesce(func.sum(Document.size_bytes), 0))
-            .where(docs).scalar_subquery().label("storage_bytes"),
-            select(func.count()).select_from(user_conversations.subquery()).scalar_subquery()
+            .where(docs)
+            .scalar_subquery()
+            .label("storage_bytes"),
+            select(func.count())
+            .select_from(user_conversations.subquery())
+            .scalar_subquery()
             .label("conversations"),
             select(func.count()).where(questions).scalar_subquery().label("questions"),
-            select(func.count()).where(questions, Message.created_at >= since)
-            .scalar_subquery().label("questions_7d"),
-            select(func.count()).where(answers, Message.created_at >= since,
-                                       Message.outcome == "not_found")
-            .scalar_subquery().label("not_found_7d"),
+            select(func.count())
+            .where(questions, Message.created_at >= since)
+            .scalar_subquery()
+            .label("questions_7d"),
+            select(func.count())
+            .where(answers, Message.created_at >= since, Message.outcome == "not_found")
+            .scalar_subquery()
+            .label("not_found_7d"),
         )  # fmt: skip
     ).one()
     return {key: int(value) for key, value in row._mapping.items()}

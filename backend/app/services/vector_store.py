@@ -165,9 +165,7 @@ class VectorStore:
             if not _is_missing_collection(exc):  # no collection = nothing to delete
                 raise
 
-    def delete_document(
-        self, document_id: uuid.UUID, *, keep: Iterable[uuid.UUID] = ()
-    ) -> None:
+    def delete_document(self, document_id: uuid.UUID, *, keep: Iterable[uuid.UUID] = ()) -> None:
         """Remove a document's points, except the ids in `keep` (the fresh set, when a
         reprocessed document replaces its old points)."""
         keep_ids = [str(i) for i in keep]

@@ -1,7 +1,8 @@
 [project]
 name = "enterprise-knowledge-intelligence"
-version = "0.1.0"
+version = "1.0.0"
 description = "RAG platform: knowledge bases, document ingestion, hybrid retrieval and grounded answers with citations."
+license = "MIT"
 requires-python = ">=3.12,<3.13"
 
 # torch is installed separately from the CPU-only index (see README step 3),
@@ -46,11 +47,13 @@ dependencies = [
 dev = [
     "pytest>=8",
     "httpx>=0.28",  # FastAPI's TestClient is built on httpx
-    "ruff>=0.8",
+    # Exact pin: the formatter's output changes between releases (0.17.4 and 0.17.6 disagreed on
+    # one file in M17), and `ruff format --check` must give the same answer on every clone.
+    "ruff==0.17.6",
 ]
 
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]  # 77+: `license = "MIT"` (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

@@ -502,7 +502,8 @@ def test_a_not_found_reply_sends_and_saves_the_closest_passages(streamed):
     assert names(out)[-3:] == ["citations", "related", "done"]
     related = dict(out)["related"]
     assert [(r["number"], r["chunk_id"]) for r in related] == [
-        (1, str(uuid.UUID(int=1))), (2, str(uuid.UUID(int=3)))
+        (1, str(uuid.UUID(int=1))),
+        (2, str(uuid.UUID(int=3))),
     ]
     assert dict(out)["citations"] == [] and out[-1][1]["related_count"] == 2
     saved = streamed["saved"][0]["answer"]
@@ -651,8 +652,10 @@ class PlanningLLM(StreamLLM):
         self.calls.append(("generate", system, prompt, model))
         if self.rewrite_error:
             raise self.rewrite_error
-        reply = {"standalone_question": STANDALONE,
-                 "search_queries": ["carry forward unused leave", "leave lapse at year end"]}
+        reply = {
+            "standalone_question": STANDALONE,
+            "search_queries": ["carry forward unused leave", "leave lapse at year end"],
+        }
         return LLMResult(json.dumps(reply), "utility-001", "stop", 120, 15, 1, {})
 
 

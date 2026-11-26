@@ -137,9 +137,7 @@ def _process(
     document_id: uuid.UUID,
 ) -> None:
     owner = (
-        select(KnowledgeBase.owner_id)
-        .where(KnowledgeBase.id == Document.kb_id)
-        .scalar_subquery()
+        select(KnowledgeBase.owner_id).where(KnowledgeBase.id == Document.kb_id).scalar_subquery()
     )
     with session_factory() as db:
         claimed = db.execute(

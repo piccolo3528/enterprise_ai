@@ -1,7 +1,7 @@
 # PROJECT TRACKER — Enterprise Knowledge Intelligence Platform
 
 > **Single source of truth for the project.**
-> Last updated: **2026-11-25** · Current milestone: **M16b — Ask Across All Knowledge Bases (COMPLETED)** · Next: **M17 — Documentation & GitHub Readiness**
+> Last updated: **2026-11-26** · Current milestone: **M17 — Documentation & GitHub Readiness (COMPLETED)** · **v1 complete.** Optional next: **M16c** (partial answers, measured) or **M18** (Docker)
 >
 > Rules: nothing is marked COMPLETED without verification evidence (a test run, a manual check, or
 > a screenshot). "Planned" and "implemented" are always kept distinct. Architectural changes are
@@ -510,15 +510,19 @@ Each milestone is small enough to finish, test and understand in one or two sess
 - **Adopt only if:** 7/7 unanswerable questions still refused and faithfulness stays ~98 % (M15 numbers).
 - **Dependencies:** M16b.
 
-### M17 — Documentation & GitHub Readiness · `NOT STARTED`
+### M17 — Documentation & GitHub Readiness · `COMPLETED` (2026-11-26)
 - **Objective:** A repo a reviewer can clone and run on Windows by following the README alone.
 - **Tasks:**
-  - [ ] README final (screenshots, eval results, limitations); `docs/API.md`, `docs/TESTING.md`; final ARCHITECTURE.md
-  - [ ] Secret scan of git history; clean-clone setup test
-  - [ ] Interview section (§G) completed
-- **Expected output:** the public GitHub repository.
+  - [x] README final: results first, 8 screenshots (`docs/screenshots/`, captured from the running app with demo data, D96), the verified setup guide with a new step 0 (clone into a short path) and a troubleshooting table, "Using the app", retrieval and answer evaluation, limitations, license (D97)
+  - [x] `docs/API.md` (31 routes from the app's OpenAPI schema; conventions, error codes, limits, headers, the SSE protocol; a Python example **run verbatim** against the dev server) and `docs/TESTING.md` (layers, counts per file, isolation, evaluation suites, Chrome checks, the clean-clone test, testing limits)
+  - [x] Final ARCHITECTURE.md: status v1.0, §6 folder structure and §7 dependencies as built (the "proposed" `scripts/*.ps1` helpers were never needed and are gone from the docs), §4.14 back in order, stale "planned" lines fixed
+  - [x] Secret scan of the whole git history: 21 commits, 553 blobs; no `.env` value anywhere; the 8 password-shaped URLs are placeholders; no secret-like file ever added; one identity (the personal noreply address)
+  - [x] Clean-clone setup test: public repo cloned and the README followed in a new venv (§F.8). Found and fixed: `ruff format --check` failed on the committed code (now formatted, ruff pinned, D95), and a deep clone path breaks `pip install torch` on Windows (README step 0)
+  - [x] License: MIT (user decision, D94), with PyMuPDF's AGPL noted in the README; versions 1.0.0
+  - [x] Interview section (§G) completed: Q17 answered, drafts finalised, Q81–Q83 added
+- **Expected output:** the public GitHub repository. **Achieved:** github.com/piccolo3528/enterprise_ai (public) with the final docs; from a fresh clone the README gives a working backend and frontend, and every suite passes.
 - **Dependencies:** M16b.
-- **Testing:** fresh-clone setup; all tests green.
+- **Testing:** clean clone: unit 605, live 129, frontend 122, build ok, API smoke check passed (after re-running it alone); ruff format failed (fixed) · after the formatting: 605 unit, 129 live, 122 frontend, ruff check + format clean, build ok · API example run verbatim · secret scan (§F.8).
 
 ### M18 — (Optional, after v1) Docker Learning Milestone · `NOT STARTED`
 - **Objective:** Learn containers by containerizing the working app (Dockerfiles for the backend + frontend; Qdrant container).
@@ -573,14 +577,16 @@ Each milestone is small enough to finish, test and understand in one or two sess
   selected; measured no worse than selecting the right one (Hit@1 82 % vs 78–80 %), so it is
   the default; answers and results name the knowledge base each source came from. A refused
   question now lists the passages that came closest (above a measured relevance floor).
-- Next: documentation and GitHub readiness (M17).
+- Documentation and GitHub readiness (M17): a final README with results and screenshots, an API
+  reference and a testing guide; the setup verified from a fresh clone of the public repo;
+  the git history scanned for secrets; MIT license. **v1 is complete.**
 
 ### F.2 In progress
-- Nothing. M17 is next. Optional leftover: grading the backup-model run's last 36 answers as
-  Groq's daily budget allows (F.10).
+- Nothing. Optional leftover: grading the backup-model run's last 36 answers as Groq's daily
+  budget allows (F.10), and the proposed fix for L94.
 
 ### F.3 Remaining functionality
-- Everything in M17 (M18 optional).
+- Nothing required for v1. Optional: M16c (partial answers, measured), M18 (Docker).
 
 ### F.4 Known bugs
 - _None known._ Not a bug, but: `uvicorn --reload` couldn't restart workers when launched from the
@@ -603,6 +609,21 @@ Each milestone is small enough to finish, test and understand in one or two sess
   the Gemini planning call before retrieval's ownership check answered 404, spending a user's
   quota on a request that was going to be refused. Ownership is now checked first (D89);
   removing the fix makes the cross-user test fail with "reached generate()".
+- **Fixed in M17 (found by the clean clone):** `ruff format --check`, step 13 of the README,
+  failed on the committed code: 15 files with the installed ruff 0.17.4, 14 with the 0.17.6 a
+  fresh install resolved. Recent milestones had run only `ruff check`. Formatted (whitespace and
+  wrapping only) and ruff pinned exactly (D95).
+- **Fixed in M17 (docs):** a clone in a deep folder fails `pip install torch` with `WinError 206`
+  (MAX_PATH; `LongPathsEnabled` is 0 on this PC). README step 0 now says to clone into a short
+  path, or how to enable long paths.
+- **Open, suspected (M17):** while uploading the screenshot demo data, 2 of 20 documents stayed
+  `processing` / `uploaded` for 27+ minutes; the other 18 were ready within ~70 s. There was a
+  ~30 s stall around 14:11:55–14:12:25 IST (the length of the database connect timeout) and a
+  dropped local connection, and no restart (recovery would have marked them failed). Likely
+  cause: the job's own status writes failed, and `process_document` only logs "Ingestion job for
+  document … crashed", so the status never changes and Retry answers 409 until a restart (L94).
+  To confirm: that line in the backend terminal around 14:12 IST on 26 Nov. Fix proposed, not
+  built.
 
 ### F.5 Technical limitations & risks
 
@@ -700,6 +721,9 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | L91 | The "All" document filter lists documents with one request per knowledge base | Slower with many knowledge bases | Fine for a handful; a cross-knowledge-base documents endpoint is the upgrade |
 | L92 | Answers saved before M16b have no knowledge base on their citations; `/ask` (scripts) stays per knowledge base | Old citations show no KB name; scripts must name one | Their "Open document" falls back to the conversation's knowledge base, which is right for them |
 | L93 | The related-passages floor (cosine 0.58) was measured on 57 on-topic and only 4 off-topic questions, with bge-small; the gap was narrow (off-topic best 0.545, on-topic lowest 0.607) | An off-topic question may occasionally show loosely related passages, or a vague on-topic one ("my laptop fan is noisy": 0.495) none; a new embedding model needs a new floor | They are labelled "don't answer the question"; re-run the measurement (`RELATED_MIN_SEMANTIC` in `rag.py`) when the model or corpus changes; a partial-answer prompt is the measured next step (M16c) |
+| L94 | A background job that crashes inside its own status writes (e.g. the database unreachable for those seconds) leaves its document `processing` or `uploaded` | Retry answers 409 "already being processed" until the server restarts, when recovery marks it failed | Suspected in M17 (F.4). Proposed fix: the crash handler retries marking the document failed with a fresh session, and Retry may take over a `processing` document older than a few minutes |
+| L95 | Startup recovery assumes one server per database | Two servers on one database: a restart of one marks the other's in-flight documents failed | Seen in M17: the clean clone's server (:8002) shared the dev database with the user's (:8000), whose `--reload` restart failed the clone's upload. Run one server per database, as documented (L80); a persistent job queue (the D11 upgrade path) would remove it |
+| L96 | Borderline refusals vary between runs | The laptop question was refused in the M16b check and answered partially (cited, no invented time) in M17, with the same model and prompt but a different set of knowledge bases | Judge refusals over several runs (the M16c plan); temperature is 0.1, not 0 |
 | L27 | ~~A copied token stays valid until it expires~~ | — | **Resolved in M16 (D84):** a password change or "Sign out everywhere" bumps `token_version`, and older tokens are refused. Signing out of one browser still only deletes that cookie |
 
 ### F.6 Decision Log
@@ -795,6 +819,10 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | D91 | 2026-11-25 | **"All knowledge bases" is the default scope** of Chat and Search; selecting one stays available. Decided by measurement: `compare_scope.py` (5 knowledge bases by folder, 50 questions, the chat's retrieval) scored all KBs Hit@1 82 % vs 78–80 % for the right KB (two runs; the scoped number varies with keyword tie order, L51), Hit@5 98 % vs 100 %, MRR 0.881 vs 0.861–0.870, same p50. All-KB numbers equal M14's single-KB ones exactly, which checks the setup | Selecting a knowledge base never helped on this corpus, and 12 of 50 questions need documents from two folders; asking without choosing is simpler for the user | Keep the KB picker as the default; an LLM router that picks a KB first (an extra call, and a confident wrong pick) | Accepted (M16b, **user rule**: default only if Hit@1 drops ≤ 2 points) |
 | D92 | 2026-11-25 | **Scope design**: `kb_id=None` means every knowledge base of the owner, in each store (Qdrant filter on the indexed `owner_id`; SQL without the KB condition; no scope query unless a document is chosen); new routes without a KB in the path (`POST /api/search`, `POST`/`GET /api/conversations`); `conversations.kb_id` nullable with the cascade kept for KB-bound ones (migration `3b8d6e1f0a42`); citations snapshot `kb_id` + `kb_name`; the sidebar lists the selected scope's conversations | Smallest change to a tested pipeline; owner isolation already enforced in every store; a cross-KB follow-up works because the conversation, not the question, carries the scope | A `kb_ids` list per question; a separate cross-KB index; one unified conversation list (user chose per scope) | Accepted (M16b, **user decisions**: per-scope sidebar, Search page too, retrieval-only evaluation) |
 | D93 | 2026-11-25 | **Related passages on a "not found"**: when the model cites nothing and refuses, show up to 3 of the passages it was given, closest first, each with semantic score ≥ 0.58, labelled as not an answer; saved in `messages.related` (not `citations`, so counts and "N sources cited" stay true); no extra LLM call. Floor measured on the evaluation corpus (all KBs, the chat's retrieval): best-of-top-3 cosine 0.611–0.794 for the 50 answerable questions, 0.607–0.707 for the 7 unanswerable ones (on topic), 0.642 for the laptop question, 0.451–0.545 for 4 off-topic ones | The laptop question's answer was spread over three passages the model judged insufficient; showing them helps without touching the prompt or the refusal itself (7/7 in M15) | A partial-answer prompt (changes the answer and needs the M15 evaluation: M16c); showing all sources (noise for off-topic questions); a reranker threshold (reranking is off by default) | Accepted (M16b, **user decision** to fold it into M16b) |
+| D94 | 2026-11-26 | **MIT license** (user decision), with a README note that PyMuPDF is AGPL-3.0 | Short, permissive, usual for a portfolio repo. The repo contains none of PyMuPDF's code (pip installs it); a network deployment must follow PyMuPDF's terms | AGPL-3.0 (no compatibility question, but restricts reuse), Apache-2.0, no license | Done |
+| D95 | 2026-11-26 | **Pin ruff exactly** (`==0.17.6`) and format `app`/`tests` | The formatter's output differs between releases (0.17.4 and 0.17.6 disagreed on one file), so an open range makes `ruff format --check` pass or fail depending on the day of install | A range (`>=0.17,<0.18`), dropping the format check from the README | Done |
+| D96 | 2026-11-26 | **Screenshots taken by headless Edge over the DevTools protocol** (a 150-line script with the `websockets` package uvicorn already installs), from the running app with a throwaway account and the sample policies | Real pages, reproducible, no new dependency; the Chrome extension can't save files | Playwright (a new dependency and a browser download), screenshots by hand | Done |
+| D97 | 2026-11-26 | **README for a reviewer:** results and screenshots first, then a setup guide verified by a clean clone, then evaluation and limitations; milestone history stays in this tracker | A reviewer decides in the first screen; the old README was a build diary ("drafts", "arrives in M9") | Keeping the milestone-by-milestone README | Done |
 | D39 | 2026-11-09 | Own accessible `Modal` for create/edit/delete; delete asks for a click on "Delete" (Cancel focused by default) but not for the typed name | `window.confirm` can't show server errors, can't be styled, and blocks the page; typing the name adds friction while KBs are still empty | `window.confirm`; GitHub-style typed confirmation (revisit in M7 when KBs hold documents) | Accepted (M6) |
 | D28 | 2026-11-06 | `/api/health` always returns 200 with `status: ok \| degraded` and per-service details | The status page shows which service failed; a 503 would hide the details behind an error | 503 when degraded | Accepted (M2) |
 | D29 | 2026-11-06 | App factory in `app/factory.py`; `app/main.py` only does `app = create_app()` | Tests build apps with fake settings and never load `backend/.env`; the uvicorn command stays `app.main:app` | Factory in `main.py` + `uvicorn --factory` | Accepted (M2) |
@@ -917,6 +945,14 @@ Each milestone is small enough to finish, test and understand in one or two sess
 | 2026-11-25 | M16b | Chrome: related passages, throwaway account (identity checked via `/api/auth/me` first) | ✔ | KBs "IT" (NX-IT-001, NX-IT-003) and "HR" (NX-HR-001). The user's laptop question on All → "I couldn't find the answer to that in your documents." (gemini-3.5-flash-lite, 16.8 s, 10 passages given) with 3 related passages: NX-IT-003 §7 Return of Equipment, §4 Issuance (4.3 Refresh), NX-IT-001 §13 IT Support (13.2 ticket priorities); panel headed "Related passages"; clicking 3 opened its text (P3 priorities). Reloaded: 3 still shown (saved). "Who won the Premier League with Manchester United in 1999" → refused, no related list (3.9 s). Cleanup: KBs deleted via the API (204), 2 throwaway users deleted, 0 Qdrant points, 0 orphan conversations |
 | 2026-11-25 | M16b | `compare_scope.py`, 2 runs (no LLM calls, ~150 s each) | ✔ decided | All KBs: Hit@1 82 %, Hit@3 96 %, Hit@5 98 %, MRR 0.881 both runs (= M14's single KB). Right KB: Hit@1 78 % then 80 %, Hit@5 100 %, MRR 0.861 / 0.870. p50 842 vs 854 ms, then 763 vs 757 ms. 6 questions changed rank (4 better with all, Q047 and Q055 worse) |
 | 2026-11-25 | M16b | Chrome on the user's servers, throwaway account (identity checked before every write) | ✔ | Two KBs (HR, Finance). Chat opened on "All knowledge bases"; "How quickly are travel expenses reimbursed?" → 12 working days, cited from M16b Finance, "Open document" to the Finance KB, 5.9 s; follow-up "And how many days of unused annual leave can I carry forward?" → 8 days, cited from M16b HR, 3.9 s, same conversation (`kb_id` null). Search: default All, results from both KBs named and linked to their own KB; document filter "… (M16b Finance)"; selecting HR returned only the HR document. Cleanup: conversation and both KBs deleted, user deleted, 0 Qdrant points, 0 orphan conversations |
+| 2026-11-26 | M17 | Secret scan of the git history (scratch script: every blob of every commit + commit messages) | ✔ clean | 21 commits, 553 distinct blobs (7.1 MB). No value from `backend/.env` in any blob or message (model names match, as expected). Patterns: no Google/Groq/OpenAI/GitHub keys, JWTs or private keys; 8 password-shaped URLs, all placeholders (`USER:PASSWORD@ep-xxxx…`, `{FAKE_DB_PASSWORD}`, `db.example.com`), host and password compared with the real ones: no match; the 2 Neon-like hosts in `test_models.py` aren't ours. No `.env`/key file ever added. One identity: the personal noreply address |
+| 2026-11-26 | M17 | Clean clone, attempt 1 (in the scratchpad, ~100-character path) | ✘ found | `pip install torch` → `OSError: [WinError 206] The filename or extension is too long` (`LongPathsEnabled` = 0). README step 0 added |
+| 2026-11-26 | M17 | Clean clone, attempt 2 (short path via `subst`; public repo at 9004fd0; README steps in order) | ✔ with 2 findings | clone 6 s · venv 22 s · pip upgrade 21 s · torch 2.15.0+cpu 262 s · `pip install -e .[dev]` 480 s · `download_models.py` PASS 85 s · `verify_setup.py` 8 PASS, 1 WARN (Groq key: HTTP 403) · `alembic upgrade head` (dev, test) + `alembic check` ✔ · `ruff check` ✔ · **`ruff format --check` ✘ 14 files** (fixed, D95) · unit **605 passed** (4 min 16 s) · live **129 passed** (10 min 51 s) · `npm install` 211 packages 94 s · `npx vitest run` **122 passed** (13 files) · build ✔ (Chat chunk 144.75 kB). Accounts and the Hugging Face cache reused; `backend/.env` copied, not printed |
+| 2026-11-26 | M17 | Clean clone: API smoke check on its own server (:8002) | ✔ on the re-run | First run ✘: the document went `failed` while the clone's server was still loading the embedding model. Cause: the user's `--reload` server (:8000, same dev database) restarted when I reformatted `backend/app` (14:43:51 IST), and its startup recovery marked the in-flight upload failed (L95). Re-run alone: health ok, sign-up, upload → ready in 7 s (16 chunks), search across KBs 10 results, cited answer (1 citation), KB and user deleted (0 test users left) |
+| 2026-11-26 | M17 | `docs/API.md` Python example, extracted from the file and run unchanged (placeholders → a throwaway account) on the dev server | ✔ | Cited answer: "a maximum of 10 days … lapses on 31 December [1]", NX-HR-002 §6. Knowledge base and user deleted |
+| 2026-11-26 | M17 | Screenshots: headless Edge over DevTools, throwaway account "Priya Sharma", 5 knowledge bases, 20 sample policies, 4 conversations (10 Gemini calls) | ✔ 8 images | dashboard, knowledge base, chunk inspector, search, chat (follow-up rewritten; superseded v2.0 cited as such), cross-KB answer (Mumbai: Tier A from NX-OPS-002 + limits from NX-FIN-001-A1 + approvals NX-FIN-003, 5 citations), related passages (gym membership → refused, 3 passages from NX-FIN-002 incl. §8 Non-Reimbursable Expenses), settings. Observations: the laptop question was answered partially this time (L96); 2 of 20 uploads stuck (F.4, L94). Cleanup: 5 KBs 204, 0 users, 0 orphan conversations, 0 Qdrant points |
+| 2026-11-26 | M17 | After formatting + docs: `ruff check` / `ruff format --check` / `pytest` / `-m live` | ✔ / ✔ / 605 / 129 passed | ruff 0.17.6; formatting changed whitespace and wrapping only in 15 files |
+| 2026-11-26 | M17 | `npm test` / `npm run build` | ✔ 122 / ✔ | package 1.0.0, MIT |
 | 2026-11-25 | M16 | `ruff` / `pytest` / `-m live` | ✔ / 587 / 124 passed | Live 8 min 27 s. New: `test_security_checklist.py` (authz matrix 28 routes × 3 cookies + malformed ids, headers, docs switch, secrets in logs/responses, Qdrant https, lying zip), `test_rate_limit.py`, `test_sessions.py`, live `test_settings_api.py` and `test_authz_matrix.py`. One earlier live run hung > 15 min on a single test while DNS for Neon failed; a probe then measured a 56 ms round trip and the re-run passed |
 | 2026-11-25 | M16 | `npm test` / `npm run build` (PowerShell) | ✔ 116 / ✔ | +13. One chat test failed once while pytest loaded the laptop and passed alone (load, as before). Bundle scan: no `AIza`/`AQ.`/`gsk_`, Neon or Qdrant hosts, or `.env` names (only UI labels such as "Groq configured") |
 | 2026-11-25 | M16 | Chrome on the user's servers, throwaway account | ✔ | Sign-in: 5 × 401 then 429 "Try again in 15 minutes", `Retry-After: 899`. Health without cookie: `{"status":"ok"}` + CSP/nosniff/no-store; signed in: database 9.6 MB, 241 ms. Settings at 1280 px; defaults saved. Password: wrong current → 400 with the message, change → 204 and still signed in, old password 401, new 200. A one-document KB: answer "up to 3 days" with a citation in 5.5 s and **no `plan` stage** (extra phrasings off → one Gemini call); "dress code" → the "couldn't find" box, no `NOT_FOUND` text. Dashboard: 6 tiles right (2 questions, 1 not found, 285 B). 375/768/1280 px × 6 pages: no page scrolls sideways (the documents table scrolls inside its card at 768). Sign out everywhere → sign-in page with the notice, `/me` 401. **Slip:** the browser carried the user's own session when a new tab group opened, and two preferences were saved on the user's account before the identity was checked; restored to the defaults at once (values identical, now stored explicitly). Cleanup: KB delete 204, 0 Qdrant points, test user deleted, 0 `m12-check-` users |
@@ -981,6 +1017,7 @@ AWS tier offers no Asia region. (Previously AWS `us-east-1`; to be deleted by th
 **M15:** no new dependencies (Groq through `httpx`, installed in M2). Settings: `GEMINI_MODEL_FALLBACK` (`gemini-3.1-flash-lite`), `JUDGE_PROVIDER` (groq), `GEMINI_MODEL_JUDGE`, `GROQ_MODEL` (`openai/gpt-oss-120b`), `GROQ_RPM_LIMIT` (30); `GROQ_API_KEY` in `.env`. Measured free limits: Gemini per model, reset 13:30 IST (flash-lite ~500 a day; 3.5-flash only ~20–30 and 10–24 s a call); Groq gpt-oss-120b 30 RPM, 1,000 RPD, 8k TPM, **200k tokens a day (rolling)** ≈ 40 judgements. `run_answers.py` ~30 min for 57 questions (Groq's TPM is the pace). Judge cache `evaluation/.cache/judge.json` (git-ignored).
 **M16:** no new dependencies. Migration `7c2e5a91d4f3` (`users.token_version`) on `production` and `test`. Settings: `RATE_LIMIT_CHAT_PER_MINUTE` (10), `RATE_LIMIT_CHAT_PER_DAY` (150), `RATE_LIMIT_UPLOADS_PER_HOUR` (20), `RATE_LIMIT_LOGIN_FAILURES_PER_EMAIL` (5), `RATE_LIMIT_LOGIN_FAILURES_PER_ADDRESS` (20), `RATE_LIMIT_REGISTRATIONS_PER_HOUR` (5), `API_DOCS_ENABLED` (true). `vite.config.js` proxy now sends `X-Forwarded-For` (`xfwd`); restart Vite after pulling. Dev database size 9.1–9.6 MB (0.9 % of Neon's 1 GB).
 **M16b:** no new dependencies or settings. Migrations `3b8d6e1f0a42` (`conversations.kb_id` nullable) and `9e4f2c7a1b85` (`messages.related`) on `production` and `test`. `compare_scope.py` ~150 s, no LLM calls. Related passages add no LLM call (they are passages already retrieved).
+**M17:** no new runtime dependencies. Dev: `ruff==0.17.6` (exact pin, D95); build backend `setuptools>=77` (for `license = "MIT"`). Project version 1.0.0. This PC: Windows long paths off (`LongPathsEnabled` = 0), so clones need a short path; Groq's key check answered HTTP 403 on 26 Nov (also in M4; the gateway issue L77 or the key: check before relying on the Groq fallback). A fresh install resolved torch 2.15.0+cpu and ruff 0.17.6. The clean clone took ~38 min end to end, ~16 of them the test suites.
 
 ### F.10a Scope changes from the user's corpus: **APPROVED 2026-11-06** (S6 done in M1; the rest are scheduled in the milestones named below)
 
@@ -1144,12 +1181,21 @@ as a personal project. Each is labelled ✅ built & measured / 📐 designed, no
   they were classified). A strict refusal isn't always a retrieval failure: the laptop
   question's passages were found, the model judged them insufficient; showing them (above a
   measured floor, so off-topic questions show nothing) helps without loosening the prompt.
+- **M17:** a setup guide is only verified when someone runs it from nothing: the clean clone
+  found two things every earlier milestone missed (a format check that had quietly stopped
+  passing, and a Windows path limit that only bites in a deep folder). Pin a tool whose
+  *output* is checked, not just its features. Generate reference docs from the code (the route
+  table came from the OpenAPI schema) and run documented examples exactly as written. Two
+  servers on one database aren't independent: a restart's recovery reached across to the other
+  one's work, so isolate test runs from the dev database's other users. And re-asking a
+  borderline question can change the outcome, so one run of an LLM is an anecdote.
 
 ### F.10 Next recommended action
-1. Start **M17 — Documentation & GitHub Readiness** (final README with screenshots and evaluation results, `docs/API.md`, `docs/TESTING.md`, final ARCHITECTURE.md, secret scan of the git history, clean-clone setup test on Windows, interview section completed).
-2. Optional, when Groq's daily budget allows (~40 judgements a day): finish grading the backup-model run, `python evaluation/run_answers.py --rejudge evaluation/reports/2026-11-23_answers_gemini-fallback.json` (36 answers left, about one day of budget), and hand-grade the 10 answers in `evaluation/reports/2026-11-24_spot_check.md`.
-3. Your quick check: `uvicorn --reload --reload-include .env` restarts on save of a `.py` file and of `.env`.
-4. Sign in again in Chrome (the M16 check replaced your session cookie there).
+1. v1 is complete. Optional milestones: **M16c — Partial Answers (measured)** (~114 Gemini calls + 57 Groq gradings, about 2 days of free quota; adopt only if 7/7 refusals hold and faithfulness stays ~98 %) and **M18 — Docker**.
+2. Check the backend terminal for "Ingestion job for document … crashed" around 14:12 IST on 26 Nov (F.4, L94); if it's there, build the proposed fix.
+3. Groq's key check answered 403 on 26 Nov: check the key at console.groq.com before relying on the last fallback step.
+4. Optional, when Groq's budget allows: finish grading the backup-model run (`--rejudge evaluation/reports/2026-11-23_answers_gemini-fallback.json`, 36 answers left).
+5. Sign in again in Chrome (the M16b check replaced your session cookie there).
 
 ### F.10b Target (set by the user, 2026-11-10)
 **Finish M7–M17 by Sunday 15 November 2026**, at the user's own pace (no external deadline). That
@@ -1193,6 +1239,7 @@ wired in behind the LLM provider interface in M12.
 - **Multi-tenant authorization**: ownership in every SQL statement, identical 404s for "missing" and "not yours", a cross-user test matrix; case-insensitive uniqueness via an expression index; PATCH semantics; accessible dialogs (M6).
 - **Abuse limits and session revocation**: a hand-written sliding-window limiter per user, email and address with `Retry-After`; "sign out everywhere" with a token version checked from a per-process cache; a security checklist where every item is a test (an authz matrix generated from the route list, headers, secrets in logs, forged zip sizes); public health reduced to liveness (M16).
 - **Multi-knowledge-base retrieval decided by measurement**: owner-wide filters in both stores, conversations without a fixed scope, and a default chosen by comparing "right KB" with "all KBs" on labelled questions; a refused question lists its closest passages above a measured relevance floor (M16b).
+- **Release engineering for a reviewer**: a git-history secret scan by value and by pattern, a clean-clone test that follows the README literally (it found a stale format check and a Windows path limit), reference docs generated from the OpenAPI schema with examples run verbatim, reproducible screenshots driven over the DevTools protocol, and exact pins for tools whose output is checked (M17).
 
 ### G.2 Architectural decisions & reasoning (talking points)
 Most likely to come up: D1 (no LangChain), D7 (hybrid + RRF), D62 (LLM-decided "not found", which replaced the D13 threshold gate), D14
@@ -1219,15 +1266,15 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 14 | How do follow-up questions work? | In Notion (M13) |
 | 15 | How do you handle LLM rate limits and outages? | In Notion (M12) |
 | 16 | How do you keep PostgreSQL and Qdrant consistent? | In Notion (M9) |
-| 17 | How would you scale to 1M documents / 1,000 users? | After M17 |
-| 18 | Why not LangChain? | Draft below |
+| 17 | How would you scale to 1M documents / 1,000 users? | Answered below (M17) |
+| 18 | Why not LangChain? | Below |
 | 19 | What is HNSW, and what does ANN trade off? | In Notion (📚 concept; default HNSW used in M9, tuning in M11) |
 | 20 | Why stream responses, and why are citations sent last? | In Notion (M13) |
-| 21 | Why use both PostgreSQL and a vector database? Why not pgvector? | Draft below |
-| 22 | What is connection pooling? What changes with PgBouncer in transaction mode? | Draft below |
-| 23 | Your database scales to zero. What problems does that cause, and how did you handle them? | Draft below |
+| 21 | Why use both PostgreSQL and a vector database? Why not pgvector? | Below |
+| 22 | What is connection pooling? What changes with PgBouncer in transaction mode? | Below |
+| 23 | Your database scales to zero. What problems does that cause, and how did you handle them? | Below |
 | 24 | How do you run migrations safely against a managed database? | In Notion (M4) |
-| 25 | How do you make sure secrets never end up in logs or error messages? | Draft below |
+| 25 | How do you make sure secrets never end up in logs or error messages? | Below |
 | 26 | How does your frontend talk to the backend, and why no CORS? | In Notion (M3) |
 | 27 | How do you handle API errors and loading states in React? | In Notion (M3) |
 | 28 | What bugs did browser testing find that unit tests didn't? | In Notion (M3) |
@@ -1283,16 +1330,42 @@ pooling), D16 (why a dedicated vector DB alongside PostgreSQL).
 | 78 | Can your users ask without choosing a knowledge base? What did it cost? | In Notion (M16b) |
 | 79 | How do you decide a product default with data? | In Notion (M16b) |
 | 80 | Your assistant refused a question whose answer was spread over several passages. What did you do? | In Notion (M16b) |
+| 81 | How do you know your setup instructions actually work? | In Notion (M17) |
+| 82 | How would you check a git history for leaked secrets? | In Notion (M17) |
+| 83 | Your tests passed locally. What did a clean clone find? | In Notion (M17) |
 
-### G.4 Answers I should be able to explain (drafts, refined as we build)
+### G.4 Answers I should be able to explain (final, M17)
 
-**Q18 — Why not LangChain?** _(draft)_ I wanted to understand and control every stage: chunking,
+**Q17 — Scaling to 1M documents and 1,000 users.** I'd measure first, but the numbers say where
+it breaks. Today: 22 documents → 333 chunks. 1M documents at ~15 chunks each is ~15M chunks.
+- *Vectors:* 15M × 384 floats × 4 bytes ≈ 23 GB, plus the HNSW graph. Qdrant handles that with
+  int8 scalar quantization (~4× smaller, rescoring the top hits with full vectors), vectors on
+  disk, and shards. The owner/KB payload indexes I already have keep filtered search fast.
+- *Ingestion:* bge-small on this CPU embeds a 400-token chunk in ~150 ms, so 15M chunks take
+  ~27 days on one machine. That needs a job queue with separate worker processes (a PostgreSQL
+  table with `SELECT … FOR UPDATE SKIP LOCKED` is enough, no Redis), and GPUs or more workers.
+  The queue also removes L16/L94/L95: jobs survive restarts and failures.
+- *Keyword search:* PostgreSQL full-text search over 15M rows works with the GIN index, but I'd
+  partition `chunks` by owner or move keyword search into Qdrant's sparse vectors so one store
+  serves both sides of hybrid search.
+- *1,000 users:* the API is nearly stateless. The two exceptions are the rate-limit counts and
+  token versions, which live in one process's memory (L80), so they move to a shared store before
+  adding workers. Neon's pooler already multiplexes connections.
+- *The LLM* is the real limit: the free tier allows a few hundred calls a day per project. At
+  1,000 users that means a paid tier, per-user quotas (the limiter exists), caching repeated
+  questions, and maybe dropping the planning call for simple first questions (it costs one call
+  and ~1–5 s).
+- *Quality at scale:* more documents means more near-duplicates and versions. The version rule
+  and per-KB scoping matter more, and I'd re-run the evaluation on a larger labelled set before
+  trusting Hit@1 to hold.
+
+**Q18 — Why not LangChain?** I wanted to understand and control every stage: chunking,
 fusion, reranking and prompt construction. Frameworks hide those decisions behind defaults.
 Building each stage as a small, testable service meant I could measure each one's effect in my
 evaluation and debug failures directly. In a team I'd consider a framework where it removes real
 boilerplate, but I'd still want to know what it does underneath.
 
-**Q21 — Why PostgreSQL *and* Qdrant?** _(draft)_ They do different jobs. PostgreSQL is the system
+**Q21 — Why PostgreSQL *and* Qdrant?** They do different jobs. PostgreSQL is the system
 of record: users, permissions, documents, chunk text, conversations, plus keyword search. It gives
 me transactions, foreign keys and cascades. Qdrant is purpose-built for nearest-neighbour search
 over vectors with payload filtering. The vectors are *derived* data: I can rebuild the whole
@@ -1301,7 +1374,7 @@ pgvector would work at this scale and means one fewer service. I chose a dedicat
 to learn how one works and to keep vector search independently scalable. The trade-off is keeping
 two stores consistent, which I handle with ordered writes and orphan filtering.
 
-**Q22 — Connection pooling and PgBouncer transaction mode.** _(draft)_ Opening a PostgreSQL
+**Q22 — Connection pooling and PgBouncer transaction mode.** Opening a PostgreSQL
 connection is expensive: TCP, TLS and authentication, each a network round trip. From my laptop to
 Neon that's about 1.35 s, against ~0.2–0.3 s for a query. A pool keeps a few connections open and
 lends them to requests, so each request pays only for its queries. There are two pools in my setup.
@@ -1313,7 +1386,7 @@ psycopg's automatic prepared statements. I also measured the real cost of a pool
 trips (pre-ping, `BEGIN`, the query, `ROLLBACK`). That's what makes "keep sequential queries per
 request to two or fewer" a hard budget rather than a style preference.
 
-**Q23 — Scale-to-zero problems and how I handled them.** _(draft)_ Neon suspends the compute after
+**Q23 — Scale-to-zero problems and how I handled them.** Neon suspends the compute after
 5 idle minutes. Three problems follow. (1) Connections in my pool die silently, so the next query
 would fail with an SSL EOF error. `pool_pre_ping` tests a connection before use, and
 `pool_recycle=240` retires connections before the 5-minute mark. (2) The first query after a
@@ -1324,7 +1397,7 @@ it would stop Neon from ever suspending, and 0.25 CU × 730 h ≈ 182 CU-hours a
 the free plan's 100, so the database would be switched off for the rest of the month. The health
 endpoint reports database latency, so a cold start is visible instead of mysterious.
 
-**Q25 — Keeping secrets out of logs and errors.** _(draft)_ Secrets live only in `backend/.env`
+**Q25 — Keeping secrets out of logs and errors.** Secrets live only in `backend/.env`
 (git-ignored) and are loaded into `SecretStr` fields, which print as `**********`. I call
 `get_secret_value()` only where the real value is needed, such as creating the database engine.
 Three less obvious leaks I closed and tested:
@@ -1344,15 +1417,15 @@ Each has a unit test asserting that a known fake secret does *not* appear in the
 
 | Item | Status | Verified by |
 |---|---|---|
-| Working frontend (all 10 UI areas functional, not mock) | NOT STARTED | |
-| Working backend (all endpoints, OpenAPI docs) | NOT STARTED | |
-| Database integration (Neon + migrations, Qdrant) | NOT STARTED | |
-| Complete RAG pipeline with citations and "not found" handling | IN PROGRESS | M12: validated citations, LLM-decided "not found" (57 questions, Chrome); M13: streamed, saved, follow-ups rewritten (Chrome, scripted); reranking/multi-query in M14 |
+| Working frontend (all 10 UI areas functional, not mock) | COMPLETED | Chrome checks M3–M16b; 8 screenshots of the running app (M17); 122 component tests |
+| Working backend (all endpoints, OpenAPI docs) | COMPLETED | 31 routes, `/docs`, `docs/API.md` generated from the schema; authz matrix over every route |
+| Database integration (Neon + migrations, Qdrant) | COMPLETED | 6 migrations on `production` and `test`; `alembic check` clean from a fresh clone; live suite on Neon + Qdrant |
+| Complete RAG pipeline with citations and "not found" handling | COMPLETED | M12–M16b; M15 evaluation: 7/7 refusals, faithfulness 98 %, citation accuracy 99 %; related passages on a "not found" (M16b) |
 | Advanced retrieval (hybrid, rerank, rewrite, multi-query, compression) | COMPLETED (compression and ordering measured on answers in M15, not adopted, D78) | M10 hybrid, M13 rewrite, M14 multi-query + version rule kept, reranking measured and not adopted (reports 2026-11-20) |
 | Evaluation (retrieval + answer metrics, report) | COMPLETED | M11 retrieval (`run_eval.py`), M14 techniques, M15 answers (`run_answers.py`, judge validated 13/13); results in the README |
-| Security checks (authz matrix, uploads, injection, secrets, Qdrant key handling) | COMPLETED | M16: ARCHITECTURE §4.16, every row a test (authz matrix 28 routes + cross-user live; headers; secrets in logs; forged zip; Qdrant https); injection defences M12 |
-| Error handling (API + UI states, LLM failures, rate limits, Neon cold start) | COMPLETED | M2 error contract + warm-up; M12/M15 LLM errors and fallback; M16 per-user limits (429 + `Retry-After`) and a states audit of every page (component tests + Chrome) |
-| Runs on Windows without Docker, following the README only | NOT STARTED | |
-| Documentation (ARCHITECTURE, API, TESTING) | IN PROGRESS | ARCHITECTURE.md v0.2 drafted (proposed) |
-| README | IN PROGRESS | Draft with setup guide marked unverified |
-| GitHub readiness (clean clone works, no secrets, .gitignore, license) | NOT STARTED | `.gitignore` drafted |
+| Security checks (authz matrix, uploads, injection, secrets, Qdrant key handling) | COMPLETED | M16: ARCHITECTURE §4.16, every row a test; M17: secret scan of the whole git history clean |
+| Error handling (API + UI states, LLM failures, rate limits, Neon cold start) | COMPLETED (one suspected gap: L94) | M2 error contract + warm-up; M12/M15 LLM errors and fallback; M16 limits and a states audit of every page |
+| Runs on Windows without Docker, following the README only | COMPLETED | M17 clean clone of the public repo: every step, all suites green (F.8); accounts reused |
+| Documentation (ARCHITECTURE, API, TESTING) | COMPLETED | ARCHITECTURE v1.0, `docs/API.md`, `docs/TESTING.md` (M17) |
+| README | COMPLETED | Final, with results, screenshots, verified setup (M17) |
+| GitHub readiness (clean clone works, no secrets, .gitignore, license) | COMPLETED | Public repo; clean clone ✔; history scan clean; `.gitignore` covers secrets and runtime data; MIT `LICENSE` |

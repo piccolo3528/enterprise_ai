@@ -99,6 +99,8 @@ def fallback_notice(model: str) -> str:
         f"Answered by a backup model ({model}) because the main model is unavailable or has used "
         "up its daily free quota. Its answers were checked less thoroughly."
     )
+
+
 REWRITE_MAX_CHARS = 1000  # the question length limit
 
 SessionFactory = Callable[[], AbstractContextManager[Session]]

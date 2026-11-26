@@ -34,6 +34,7 @@ def llm():
 def client(db, tmp_path, vector_store, llm):
     yield from streaming_client(db, tmp_path, vector_store, llm)
 
+
 BOB_LEAVE = "Unused annual leave can be carried forward by Bob's team, up to twenty days."
 
 

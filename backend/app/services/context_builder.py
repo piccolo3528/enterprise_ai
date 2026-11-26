@@ -53,7 +53,7 @@ def looks_like_injection(text: str) -> bool:
 
 
 def document_label(filename: str, metadata: dict | None) -> str:
-    """"NX-HR-002 v3.0 · Annual Leave Policy" from front matter, else the file name."""
+    """ "NX-HR-002 v3.0 · Annual Leave Policy" from front matter, else the file name."""
     meta = metadata or {}
     code, version, title = meta.get("document_id"), meta.get("version"), meta.get("title")
     if not code and not title:
@@ -173,9 +173,7 @@ def build_context(
             skipped += 1
             continue
         used += cost
-        sources.append(
-            Source(len(sources) + 1, result, looks_like_injection(result.passage.text))
-        )
+        sources.append(Source(len(sources) + 1, result, looks_like_injection(result.passage.text)))
     if order == "sandwich" and len(sources) > 2:
         reordered = _sandwich([s.result for s in sources])
         by_id = {s.result.passage.chunk_id: s for s in sources}

@@ -95,10 +95,7 @@ def format_source(source: SourceInput) -> str:
 
 def build_user_prompt(question: str, sources: Sequence[SourceInput]) -> str:
     body = "\n\n".join(format_source(s) for s in sources)
-    return (
-        f"<sources>\n{body}\n</sources>\n\n"
-        f"<question>\n{escape_passage(question)}\n</question>"
-    )
+    return f"<sources>\n{body}\n</sources>\n\n<question>\n{escape_passage(question)}\n</question>"
 
 
 def is_not_found(answer: str) -> bool:
